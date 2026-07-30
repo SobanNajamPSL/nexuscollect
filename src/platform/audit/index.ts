@@ -32,13 +32,23 @@ function chainableContent(entry: AuditEntryInput): unknown {
  * rejects UPDATE/DELETE at the database level (CREATE RULE ... DO INSTEAD NOTHING,
  * db/migrations/0011_audit.sql) — this function is simply the only supported way
  * to add to it.
+ *
+ * Takes whatever `db` handle the caller passes — a plain `Kysely<Database>` or an
+ * already-open `Transaction<Database>` — and runs directly against it, opening
+ * its own transaction only when it isn't already inside one. This mirrors
+ * `platform/outbox`'s own contract exactly: finding F/G require the audit row and
+ * outbox event to commit or roll back atomically with the business write, which
+ * only works if this function never opens a *second*, independent transaction
+ * when a caller (e.g. `modules/obligation`'s `transition()`) is already inside one.
+ * `pg_advisory_xact_lock` is transaction-scoped either way, so serialising
+ * concurrent chain appends still holds in both cases.
  */
 export async function appendAuditEntry(
   db: Kysely<Database>,
   entry: AuditEntryInput,
   clock: Clock,
 ): Promise<void> {
-  await db.transaction().execute(async (trx) => {
+  const run = async (trx: Kysely<Database>): Promise<void> => {
     await sql`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_KEY})`.execute(trx);
 
     const last = await trx
@@ -71,7 +81,13 @@ export async function appendAuditEntry(
         hash_self: hashSelf,
       })
       .execute();
-  });
+  };
+
+  if (db.isTransaction) {
+    await run(db);
+  } else {
+    await db.transaction().execute(run);
+  }
 }
 
 /** Walks the whole audit_log chain and names the first tampered row, if any. */

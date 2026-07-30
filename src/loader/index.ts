@@ -1,31 +1,44 @@
+import { dirname, join } from "node:path";
 import { sql, type Kysely, type Transaction } from "kysely";
 import type { Database } from "../db/schema.js";
 import { readDemoCsv, str, requiredStr, minor, minorOrNull, yn, jsonOrNull, jsonOr, pipeList, dateOrNull, tsOrNull, toJsonb } from "./csv-helpers.js";
 import { hashPrimaryId, encryptPrimaryId } from "../modules/identity/pii.js";
-import { EARLY_DISCOUNT_RULE_OVERRIDES, SURCHARGE_RULE_OVERRIDES } from "../modules/obligation/product-rule-overrides.js";
-import { syncResolutionIndex } from "../modules/obligation/resolution-index-sync.js";
+import { applyProductDerivedRules } from "./apply-product-rules.js";
+import { ingestReconSourceFiles } from "./ingest-recon-source.js";
+import { mintReceiptsForSettledAssessments } from "../modules/evidence/receipt.js";
+import type { Clock } from "../platform/clock/index.js";
 
 /**
- * Loads all 22 demo-data/ files into the database, in the FK order documented by
+ * Loads demo-data/ into the database, in the FK order documented by
  * demo-data/README.md. Business-key CSV ids (e.g. "AS-00013", "RH-FBR-B01101")
  * are resolved to real UUIDs via in-memory maps built as each table loads — the
  * CSVs reference each other by business key, the schema is keyed by UUID.
  *
  * Runs as one transaction with `app.is_platform_role` set, so RLS (§23.1) does not
- * block writes across all nine agencies in one pass. Recon source files
- * (bank_statement_camt053.csv, switch_settlement_1link.csv, rail_settlement_raast.csv,
- * scroll_fbr_20260730.csv, scroll-sample.txt) and the supporting fixtures
- * (bulk_payment_input.csv, qr-payloads.json) are NOT master data — demo-data/README.md
- * is explicit that those are inputs to the recon engine (§12, Phase 4) and are loaded
- * when that phase exercises them, not here.
+ * block writes across all nine agencies in one pass.
+ *
+ * File-loading scope (finding Q, resolved with the user): the 12 master-data
+ * CSVs load as before. bank_statement_camt053.csv / switch_settlement_1link.csv
+ * / rail_settlement_raast.csv / scroll_fbr_20260730.csv are now ingested too —
+ * as raw rows in recon_source_file/recon_source_record (§23 tables that already
+ * exist), with zero matching logic (that's §12, Phase 4). qr-payloads.json is
+ * not loaded into any table — QR_PAYLOAD resolution decodes it statelessly at
+ * request time (modules/resolution/qr-decode.ts), tested directly against the
+ * fixture. bulk_payment_input.csv and scroll-sample.txt have no natural Phase
+ * 0/1 schema home without inventing Phase 3/5 tables (bulk_batch, a second
+ * scroll representation) — genuinely not loaded, reported as a gap rather than
+ * silently skipped or forced in.
  */
-export async function loadDemoData(db: Kysely<Database>, demoDataDir: string): Promise<void> {
+export async function loadDemoData(db: Kysely<Database>, demoDataDir: string, clock: Clock): Promise<void> {
+  const productRulesConfigPath = join(dirname(demoDataDir), "config", "product-derived-rules.json");
+
   await db.transaction().execute(async (trx) => {
     await sql`SELECT set_config('app.is_platform_role', 'true', true)`.execute(trx);
     await loadAgencies(trx, demoDataDir);
     const revenueHeadById = await loadRevenueHeads(trx, demoDataDir);
     await loadReferenceSchemes(trx, demoDataDir);
     const productByAgencyCode = await loadProducts(trx, demoDataDir, revenueHeadById);
+    await applyProductDerivedRules(trx, productRulesConfigPath); // finding N — data config, not a TS override, applied once products exist
     const payerById = await loadPayers(trx, demoDataDir);
     const payerAccountById = await loadPayerAccounts(trx, demoDataDir, productByAgencyCode);
     const assessmentById = await loadAssessments(trx, demoDataDir, productByAgencyCode, payerAccountById);
@@ -34,6 +47,8 @@ export async function loadDemoData(db: Kysely<Database>, demoDataDir: string): P
     const paymentById = await loadPayments(trx, demoDataDir, instrumentById);
     await loadPaymentAllocations(trx, demoDataDir, paymentById, assessmentById, lineItemById, revenueHeadById);
     await loadRequestsToPay(trx, demoDataDir, assessmentById, paymentById);
+    await mintReceiptsForSettledAssessments(trx, clock); // finding K — pre-minted now, resolve stays read-only
+    await ingestReconSourceFiles(trx, demoDataDir, clock); // finding Q — raw ingestion only
   });
 }
 
@@ -190,15 +205,13 @@ async function loadProducts(
         secondary_lookup_keys: toJsonb(jsonOr(row["secondary_lookup_keys"], [])) as never,
         status: requiredStr(row["status"], "status"),
         effective_from: requiredStr(row["effective_from"], "effective_from"),
-        // See product-rule-overrides.ts: demo-data has no surcharge_rule/
-        // early_discount_rule columns; this seeds the one product Phase 1's
-        // resolution gate actually needs configured.
-        surcharge_rule: SURCHARGE_RULE_OVERRIDES[row["product_code"] as string]
-          ? (toJsonb(SURCHARGE_RULE_OVERRIDES[row["product_code"] as string]) as never)
-          : null,
-        early_discount_rule: EARLY_DISCOUNT_RULE_OVERRIDES[row["product_code"] as string]
-          ? (toJsonb(EARLY_DISCOUNT_RULE_OVERRIDES[row["product_code"] as string]) as never)
-          : null,
+        // demo-data/products.csv has no surcharge_rule/early_discount_rule
+        // columns at all — left null here. config/product-derived-rules.json
+        // (applied by applyProductDerivedRules, after all products are loaded)
+        // is the actual, disclosed source of these rules — see that file for
+        // why (finding N).
+        surcharge_rule: null,
+        early_discount_rule: null,
       })
       .returning(["id"])
       .executeTakeFirstOrThrow();
@@ -370,10 +383,9 @@ async function loadAssessments(
       .returning(["id"])
       .executeTakeFirstOrThrow();
     byBusinessId.set(row["assessment_id"] as string, { id: inserted.id, agencyId, psid });
-    // Phase 1's resolution_index has no other write path for demo-loaded
-    // assessments — the loader inserts directly, bypassing
-    // modules/obligation.createAssessment, so it must sync the index itself.
-    await syncResolutionIndex(trx, inserted.id, true);
+    // resolution_index is now maintained entirely by the trg_sync_resolution_index
+    // DB trigger (0019_resolution_index_trigger.sql) — it fires on this INSERT
+    // unconditionally, regardless of which code path wrote the row (finding J).
   }
   return byBusinessId;
 }

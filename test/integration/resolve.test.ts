@@ -9,7 +9,7 @@ import { buildApp } from "../../src/api/build-app.js";
 import { DemoClock } from "../../src/platform/clock/index.js";
 import { loadSchemeCache, _resetSchemeCacheForTests } from "../../src/modules/resolution/scheme-cache.js";
 import { resolveReference } from "../../src/modules/resolution/index.js";
-import { amendAssessment } from "../../src/modules/obligation/index.js";
+import { amendAssessment, rebuildAssessmentBalance, VersionConflictError } from "../../src/modules/obligation/index.js";
 import type { Database } from "../../src/db/schema.js";
 import type { FastifyInstance } from "fastify";
 
@@ -27,7 +27,7 @@ describe("Phase 1: POST /v1/resolve", () => {
 
   beforeAll(async () => {
     testDb = await startTestDb();
-    await loadDemoData(testDb.db, DEMO_DATA_DIR);
+    await loadDemoData(testDb.db, DEMO_DATA_DIR, clock);
     app = await buildApp({ db: testDb.db, clock });
   }, 120_000);
 
@@ -59,25 +59,58 @@ describe("Phase 1: POST /v1/resolve", () => {
     expect(byPsid["31010900000181526"]).toMatchObject({
       product_code: "ETPB-TOKEN-CAR",
       status: "OVERDUE",
-      payable_amount_minor: "1000000",
-      discount_applied_minor: "0",
+      payable_amount_minor: 1000000,
+      discount_applied_minor: 0,
     });
     expect(byPsid["41011300000190123"]).toMatchObject({
       product_code: "PSCA-CHALLAN-MOV",
       status: "ISSUED",
-      payable_amount_minor: "375000",
-      discount_applied_minor: "125000", // the live 1,250.00 discount
+      payable_amount_minor: 375000,
+      discount_applied_minor: 125000, // the live 1,250.00 discount
     });
     expect(byPsid["41011400000286611"]).toMatchObject({
       product_code: "PSCA-CHALLAN-PARK",
       status: "OVERDUE",
-      payable_amount_minor: "300000",
-      discount_applied_minor: "0",
+      payable_amount_minor: 300000,
+      discount_applied_minor: 0,
     });
 
     expect(body.settled[0]).toMatchObject({ psid: "41011400001606295", status: "SETTLED", code: "ALREADY_SETTLED" });
     expect(body.settled[0].receipt_no).toBeTypeOf("string");
     expect(body.settled[0].receipt_no.length).toBeGreaterThan(0);
+  });
+
+  it("finding A: all 7 PARTIALLY_PAID fixture assessments resolve to their outstanding balance, not the gross assessed amount", async () => {
+    // Expected outstanding = SUM(line.amount_minor) - SUM(line.allocated_minor)
+    // per assessment_line_items.csv (neither FBR-IT-COMP nor WASA-WATER-DOM has
+    // a live surcharge/discount rule configured, so no derived adjustment applies).
+    const expected: Record<string, { psid: string; outstanding: number; gross: number }> = {
+      "AS-00004": { psid: "12010100000485997", outstanding: 30353700, gross: 50589500 },
+      "AS-00005": { psid: "12010100000587511", outstanding: 27378000, gross: 54756000 },
+      "AS-00006": { psid: "12010100000683459", outstanding: 23829000, gross: 59572500 },
+      "AS-00007": { psid: "12010100000733644", outstanding: 19556700, gross: 65189000 },
+      "AS-00008": { psid: "12010100000831173", outstanding: 41523300, gross: 69205500 },
+      "AS-00009": { psid: "12010100000966361", outstanding: 37011000, gross: 74022000 },
+      "AS-00092": { psid: "5101150000036", outstanding: 161300, gross: 177000 },
+    };
+
+    for (const { psid, outstanding, gross } of Object.values(expected)) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/resolve",
+        headers: { "x-institution-id": "bank-test-001" },
+        payload: { key_type: "PSID", key_value: psid, channel: "APP" },
+      });
+      expect(response.statusCode, `PSID ${psid}`).toBe(200);
+      const body = response.json();
+      expect(body.payables, `PSID ${psid} payables`).toHaveLength(1);
+      expect(body.payables[0].payable_amount_minor, `PSID ${psid} payable_amount_minor`).toBe(outstanding);
+      expect(body.payables[0].max_payable_minor, `PSID ${psid} max_payable_minor`).toBe(outstanding);
+      // Proves it's genuinely the outstanding balance and not a fluke equal to gross.
+      expect(body.payables[0].payable_amount_minor, `PSID ${psid} must differ from gross`).not.toBe(gross);
+      const lineTotal = body.payables[0].head_breakdown.reduce((s: bigint, l: { balance_minor: number }) => s + BigInt(l.balance_minor), 0n);
+      expect(Number(lineTotal), `PSID ${psid} head_breakdown balances must sum to payable_amount_minor`).toBe(outstanding);
+    }
   });
 
   it("gate 2: a bad check digit returns INVALID_REFERENCE_CHECKSUM with zero database queries", async () => {
@@ -153,7 +186,7 @@ describe("Phase 1: POST /v1/resolve", () => {
     expect(p99, `durations: ${durations.map((d) => d.toFixed(1)).join(", ")}`).toBeLessThan(300);
   });
 
-  it("gate 5: amending an assessment keeps the PSID and creates version 2", async () => {
+  it("gate 5: amending an assessment keeps the PSID, creates version 2, and rebuilds to the exact cached balance (finding D)", async () => {
     // AS-00072 (PSID 41011300000190123) — one of the anchor's open payables.
     const original = await testDb.db
       .selectFrom("assessment")
@@ -162,8 +195,16 @@ describe("Phase 1: POST /v1/resolve", () => {
       .executeTakeFirstOrThrow();
     expect(original.version).toBe(1);
 
-    const result = await amendAssessment(testDb.db, original.id, { description: "Amended: corrected violation code" }, clock);
+    const result = await amendAssessment(
+      testDb.db,
+      original.id,
+      { expectedVersion: original.version, reasonCode: "CLERICAL_ERROR", description: "Amended: corrected violation code" },
+      { actorType: "INSTITUTION", actorId: "bank-test-001" },
+      clock,
+    );
     expect(result.version).toBe(2);
+    expect(result.overpaymentRecognisedMinor).toBe(0n);
+    expect(result.refundId).toBeNull();
 
     const oldRow = await testDb.db.selectFrom("assessment").selectAll().where("id", "=", original.id).executeTakeFirstOrThrow();
     expect(oldRow.status).toBe("AMENDED");
@@ -173,5 +214,42 @@ describe("Phase 1: POST /v1/resolve", () => {
     expect(newRow.version).toBe(2);
     expect(newRow.supersedes_id).toBe(original.id);
     expect(newRow.status).toBe("ISSUED");
+
+    // The amended version resolves under the same PSID, and rebuilding its
+    // balance from the real allocations reproduces the cached value exactly.
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/resolve",
+      headers: { "x-institution-id": "bank-test-001" },
+      payload: { key_type: "PSID", key_value: original.psid, channel: "APP" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().payables[0].psid).toBe(original.psid);
+
+    const rebuilt = await rebuildAssessmentBalance(testDb.db, result.newAssessmentId);
+    expect(rebuilt.matches).toBe(true);
+    expect(rebuilt.balanceMinor).toBe(newRow.balance_minor);
+  });
+
+  it("gate 5b: amending with a stale expected_version is rejected with VERSION_CONFLICT, not silent corruption", async () => {
+    const original = await testDb.db
+      .selectFrom("assessment")
+      .selectAll()
+      .where("psid", "=", "41011400000286611")
+      .executeTakeFirstOrThrow();
+
+    await expect(
+      amendAssessment(
+        testDb.db,
+        original.id,
+        { expectedVersion: original.version + 1, reasonCode: "CLERICAL_ERROR" }, // deliberately stale
+        { actorType: "INSTITUTION", actorId: "bank-test-001" },
+        clock,
+      ),
+    ).rejects.toThrow(VersionConflictError);
+
+    const unchanged = await testDb.db.selectFrom("assessment").selectAll().where("id", "=", original.id).executeTakeFirstOrThrow();
+    expect(unchanged.status).toBe(original.status);
+    expect(unchanged.version).toBe(original.version);
   });
 });

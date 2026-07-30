@@ -6,9 +6,8 @@
  * mechanism for Phase 1, without a separate codegen pipeline.
  */
 
-// openapi.yaml ResolutionKeyType — all 17 values, so the schema boundary
-// matches the contract even though only 11 have real resolution logic
-// (the other 6 + QR_PAYLOAD return a 200 with empty arrays; see modules/resolution).
+// openapi.yaml ResolutionKeyType — all 17 values, all with real resolution
+// logic (finding C): see modules/resolution/index.ts for how each resolves.
 const RESOLUTION_KEY_TYPE = [
   "PSID", "CRN", "RF_REFERENCE", "VEHICLE_REG", "CNIC", "NTN", "STRN", "CASE_NO",
   "APPLICATION_NO", "GD_NO", "PROPERTY_ID", "INSTRUMENT_NO", "TENDER_REF",
@@ -46,11 +45,11 @@ const payableSchema = {
     product_code: { type: "string" },
     category: { type: "string" },
     label: { type: "string" },
-    payable_amount_minor: { type: "string" },
-    min_payable_minor: { type: "string" },
-    max_payable_minor: { type: "string" },
-    surcharge_accrued_minor: { type: "string" },
-    discount_applied_minor: { type: "string" },
+    payable_amount_minor: { type: "integer" },
+    min_payable_minor: { type: "integer" },
+    max_payable_minor: { type: "integer" },
+    surcharge_accrued_minor: { type: "integer" },
+    discount_applied_minor: { type: "integer" },
     discount_expires_on: { type: ["string", "null"] },
     amount_valid_until: { type: ["string", "null"] },
     currency: { type: "string" },
@@ -59,8 +58,8 @@ const payableSchema = {
     status: { type: "string" },
     partial_allowed: { type: "boolean" },
     overpayment_allowed: { type: "boolean" },
-    fee_amount_minor: { type: "string" },
-    tax_on_fee_minor: { type: "string" },
+    fee_amount_minor: { type: "integer" },
+    tax_on_fee_minor: { type: "integer" },
     fee_bearer: { type: "string" },
     payer_name_masked: { type: ["string", "null"] },
     service_gating: { type: "string" },
@@ -72,8 +71,8 @@ const payableSchema = {
           revenue_head_code: { type: "string" },
           line_type: { type: "string" },
           tax_period: { type: ["string", "null"] },
-          amount_minor: { type: "string" },
-          balance_minor: { type: "string" },
+          amount_minor: { type: "integer" },
+          balance_minor: { type: "integer" },
         },
       },
     },

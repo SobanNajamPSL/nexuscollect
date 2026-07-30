@@ -5,6 +5,7 @@ import { sql } from "kysely";
 import { startTestDb, type TestDb } from "./helpers.js";
 import { loadDemoData } from "../../src/loader/index.js";
 import { dammValidate } from "../../src/platform/checksum/damm.js";
+import { DemoClock } from "../../src/platform/clock/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
@@ -12,11 +13,33 @@ const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
 /**
  * PROMPTS.md Prompt 0, acceptance test 9: "All 22 files in demo-data/ load, and
  * all eight generator assertions still hold against the loaded DATABASE (not
- * the CSVs)." scripts/generate_demo_data.py's own verify() runs 17 checks; only
- * some are meaningful against just the 12 master-data tables Phase 0 loads —
- * the rest need recon source files (§12) or business logic (§9 state machines,
- * §11 apply pipeline) that are out of scope until later phases. The ones
- * re-verified here, against the live database:
+ * the CSVs)." Two things worth being precise about, re-verified directly
+ * against the design document (audit finding Q):
+ *
+ * - "22 files" is PROMPTS.md's own count and it's simply inaccurate — `ls
+ *   demo-data/` returns 21 entries (20 data/fixture files + README.md). There
+ *   is no 22nd file on disk or named anywhere in demo-data/README.md.
+ * - "8 generator assertions... against the loaded database" is NOT a
+ *   narrowing of anything — it's §25's own verbatim Phase 0 acceptance
+ *   criterion (line 3567: "All 8 generator assertions pass against the loaded
+ *   database, not just the CSVs"). §24.1 separately says the generator script
+ *   runs 17 checks *while producing* the CSVs (line 3436) — a different
+ *   artifact, by the spec's own words, not a stricter version of the same one.
+ *
+ * What *was* a real gap: only 12 of the 20 real data files were being loaded
+ * at all. Resolved: bank_statement_camt053.csv / switch_settlement_1link.csv /
+ * rail_settlement_raast.csv / scroll_fbr_20260730.csv now load as raw rows
+ * into recon_source_file/recon_source_record (§23 tables that already exist;
+ * zero matching logic — that's §12, Phase 4). qr-payloads.json is exercised
+ * directly by test/integration/resolve-key-types.test.ts's QR_PAYLOAD tests,
+ * not loaded into a table (QR has no natural persisted representation — it's
+ * decoded statelessly per request). bulk_payment_input.csv and
+ * scroll-sample.txt remain genuinely unloaded: neither has a Phase 0/1 schema
+ * table without inventing Phase 3's bulk_batch or a second scroll
+ * representation ahead of Phase 5 — this is the honestly-reported gap, not a
+ * silent omission.
+ *
+ * The 8 generator assertions re-verified here, against the live database:
  *   1  Damm validity of every DAMM-scheme PSID
  *   2  line items sum to assessed_amount_minor
  *   3  per-payment allocation integrity (applied + unapplied = gross)
@@ -26,17 +49,17 @@ const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
  *   12 PRO_RATA allocation loses/invents no paisa
  *   15 RtP fulfilment is linked in both directions
  *   17 every instrument's type is permitted by its linked assessment's product
- * (checks 6-10, 13-14, 16 need qr-payloads.json / recon source files / scroll
- * data / generator-internal fields not exposed in demo-data/, none of which
- * Phase 0 loads — see demo-data/README.md's own note that those are recon-engine
- * inputs for §12, not master data.)
+ * (checks 6, 9-10, 13-14, 16 need generator-internal fields not exposed in
+ * demo-data/, or the actual recon *matching* engine — §12, Phase 4 — not just
+ * the raw source rows this phase now stores.)
  */
 describe("Demo data: full load + database-side consistency checks", () => {
   let testDb: TestDb;
+  const clock = new DemoClock();
 
   beforeAll(async () => {
     testDb = await startTestDb();
-    await loadDemoData(testDb.db, DEMO_DATA_DIR);
+    await loadDemoData(testDb.db, DEMO_DATA_DIR, clock);
   }, 120_000);
 
   afterAll(async () => {
@@ -197,5 +220,61 @@ describe("Demo data: full load + database-side consistency checks", () => {
     expect(rows.length).toBeGreaterThan(0);
     const disallowed = rows.filter((r) => !r.allowed_instruments.includes(r.instrument_type));
     expect(disallowed, JSON.stringify(disallowed)).toEqual([]);
+  });
+
+  it("finding Q: demo-data/ contains exactly 21 entries (20 data files + README), not 22", async () => {
+    const { readdirSync } = await import("node:fs");
+    const entries = readdirSync(DEMO_DATA_DIR);
+    expect(entries).toHaveLength(21);
+    expect(entries.filter((f) => f !== "README.md")).toHaveLength(20);
+  });
+
+  it("finding Q: the 4 recon-source files are now ingested as raw rows, matching their own CSV row counts exactly", async () => {
+    const { readFileSync } = await import("node:fs");
+    const files: { filename: string; source: string }[] = [
+      { filename: "bank_statement_camt053.csv", source: "BANK_STATEMENT" },
+      { filename: "switch_settlement_1link.csv", source: "SWITCH" },
+      { filename: "rail_settlement_raast.csv", source: "RAIL" },
+      { filename: "scroll_fbr_20260730.csv", source: "TREASURY_ACK" },
+    ];
+    for (const { filename, source } of files) {
+      const csvRowCount = readFileSync(`${DEMO_DATA_DIR}/${filename}`, "utf8").trim().split("\n").length - 1;
+      const file = await testDb.db
+        .selectFrom("recon_source_file")
+        .select(["id", "parsed_count"])
+        .where("filename", "=", filename)
+        .executeTakeFirstOrThrow();
+      expect(file.parsed_count).toBe(csvRowCount);
+
+      const recordCount = await testDb.db
+        .selectFrom("recon_source_record")
+        .select(({ fn }) => fn.countAll().as("count"))
+        .where("file_id", "=", file.id)
+        .where("source", "=", source as never)
+        .executeTakeFirstOrThrow();
+      expect(Number(recordCount.count)).toBe(csvRowCount);
+    }
+  });
+
+  it("finding Q: the same recon-source file cannot be ingested twice (file-hash dedup)", async () => {
+    const before = await testDb.db
+      .selectFrom("recon_source_file")
+      .select(({ fn }) => fn.countAll().as("count"))
+      .executeTakeFirstOrThrow();
+
+    // Re-run just the recon-source ingestion step against the same demo-data —
+    // §12.2's dedup constraint (UNIQUE(source, file_hash)) must make this a no-op.
+    const { ingestReconSourceFiles } = await import("../../src/loader/ingest-recon-source.js");
+    await testDb.db.transaction().execute(async (trx) => {
+      const { sql } = await import("kysely");
+      await sql`SELECT set_config('app.is_platform_role', 'true', true)`.execute(trx);
+      await ingestReconSourceFiles(trx, DEMO_DATA_DIR, clock);
+    });
+
+    const after = await testDb.db
+      .selectFrom("recon_source_file")
+      .select(({ fn }) => fn.countAll().as("count"))
+      .executeTakeFirstOrThrow();
+    expect(Number(after.count)).toBe(Number(before.count)); // unchanged — re-ingestion was a no-op
   });
 });

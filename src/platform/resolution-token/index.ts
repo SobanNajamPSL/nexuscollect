@@ -52,10 +52,19 @@ export type ResolutionTokenVerification =
   | { valid: true; claims: ResolutionTokenClaims }
   | { valid: false; reason: "EXPIRED" | "INVALID" };
 
-/** Used by Phase 2's intent/capture to reject a tampered or stale token. */
-export async function verifyResolutionToken(token: string): Promise<ResolutionTokenVerification> {
+/**
+ * Used by Phase 2's intent/capture to reject a tampered or stale token.
+ *
+ * Takes the injected Clock — jose's `jwtVerify` checks `exp`/`iat` against real
+ * wall-clock time by default, which is exactly the two-clocks bug this fixes: a
+ * token minted against `DemoClock` (pinned to 2026-07-30) would otherwise verify
+ * as already-expired the instant it's checked against the real system clock, since
+ * 2026-07-30 is in the past relative to whenever this code actually runs. Passing
+ * `currentDate` makes verification agree with whatever minted the token.
+ */
+export async function verifyResolutionToken(token: string, clock: Clock): Promise<ResolutionTokenVerification> {
   try {
-    const { payload } = await jwtVerify(token, getSecret(), { algorithms: [ALGORITHM] });
+    const { payload } = await jwtVerify(token, getSecret(), { algorithms: [ALGORITHM], currentDate: clock.now() });
     return { valid: true, claims: { payables: payload["payables"] as ResolutionTokenPayable[] } };
   } catch (err) {
     if (err instanceof joseErrors.JWTExpired) return { valid: false, reason: "EXPIRED" };

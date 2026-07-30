@@ -5,27 +5,49 @@ import type { Clock } from "../clock/index.js";
 import { canonicalJson } from "./canonical-json.js";
 
 /**
- * §17.4 idempotency semantics, on the `idempotency_record` table whose primary key
- * *is* the lock (institution_id, endpoint, idempotency_key):
- *  - Replaying the same key with the same body returns the original status/body
- *    and performs no second effect.
- *  - The same key with a *different* body is a client error (422) — the key was
- *    reused for a different request, which the spec treats as a caller bug, not a
- *    retry.
- *  - N concurrent identical requests race to INSERT; exactly one wins, runs the
- *    handler once, and every loser waits for that winner's result rather than
- *    running the handler itself — so exactly one record (and one real effect) is
- *    ever created.
+ * §17.4 idempotency semantics, verbatim (lines 2382-2400 of the design doc), on the
+ * `idempotency_record` table whose primary key *is* the lock (institution_id,
+ * endpoint, idempotency_key):
+ *
+ *   1. fingerprint = SHA256(canonical(body))
+ *   2. Look up (I, E, K) in idempotency_record
+ *   3. Not found  → INSERT state=IN_PROGRESS → process → UPDATE state=COMPLETE → return
+ *   4. Found, COMPLETE, same fingerprint  → return the STORED status/body verbatim.
+ *      Do NOT reprocess. Add header X-Idempotent-Replay: true
+ *   5. Found, COMPLETE, different fingerprint → 422 IDEMPOTENCY_KEY_REUSED
+ *   6. Found, IN_PROGRESS → 409 REQUEST_IN_PROGRESS with Retry-After: 2
+ *   7. Records retained 7 days (configurable), then purged
+ *
+ * Finding H: the previous implementation polled on IN_PROGRESS instead of returning
+ * 409 immediately — this rewrite removes that entirely. "Do not add an
+ * application-level mutex; the database is already correct" (spec, same section) —
+ * the UNIQUE constraint on the three-column primary key is the only concurrency
+ * control here, same as before.
  */
 
-export class IdempotencyConflictError extends Error {
+export class IdempotencyKeyReusedError extends Error {
+  readonly httpStatus = 422;
+  readonly code = "IDEMPOTENCY_KEY_REUSED";
   constructor(institutionId: string, endpoint: string, idempotencyKey: string) {
     super(
       `Idempotency-Key "${idempotencyKey}" for ${institutionId}/${endpoint} was already used with a different request body`,
     );
-    this.name = "IdempotencyConflictError";
+    this.name = "IdempotencyKeyReusedError";
   }
 }
+
+export class RequestInProgressError extends Error {
+  readonly httpStatus = 409;
+  readonly code = "REQUEST_IN_PROGRESS";
+  readonly retryAfterSeconds = 2;
+  constructor(institutionId: string, endpoint: string, idempotencyKey: string) {
+    super(`A request with Idempotency-Key "${idempotencyKey}" for ${institutionId}/${endpoint} is already in progress`);
+    this.name = "RequestInProgressError";
+  }
+}
+
+/** §17.4 line 2397: "Records retained 7 days (configurable), then purged." */
+export const IDEMPOTENCY_RETENTION_DAYS = 7;
 
 export interface IdempotencyParams {
   institutionId: string;
@@ -40,19 +62,12 @@ export interface IdempotentResponse<T> {
 }
 
 export interface IdempotencyOutcome<T> extends IdempotentResponse<T> {
-  /** True if this call returned a previously-stored result rather than running the handler. */
+  /** True if this call returned a previously-stored result rather than running the handler — route layer sets X-Idempotent-Replay: true when this is true. */
   replayed: boolean;
 }
 
-const POLL_INTERVAL_MS = 25;
-const MAX_POLL_ATTEMPTS = 200; // 5s worst case, generous for a test-suite handler
-
 function fingerprintOf(requestBody: unknown): Buffer {
   return createHash("sha256").update(canonicalJson(requestBody)).digest();
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function withIdempotency<T>(
@@ -78,8 +93,8 @@ export async function withIdempotency<T>(
     .executeTakeFirst();
 
   if (inserted) {
-    // We won the race: we are the only caller that will ever run the handler for
-    // this key.
+    // We won the INSERT: we are the only caller that will ever run the handler
+    // for this key. Everyone else hit the unique-constraint conflict below.
     const result = await handler();
     await db
       .updateTable("idempotency_record")
@@ -101,40 +116,44 @@ export async function withIdempotency<T>(
     return { ...result, replayed: false };
   }
 
-  // We lost the race (or this is a genuine replay of an already-complete request):
-  // read the winner's row and either return its result or reject as a conflict.
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    const row = await db
-      .selectFrom("idempotency_record")
-      .selectAll()
-      .where("institution_id", "=", institutionId)
-      .where("endpoint", "=", endpoint)
-      .where("idempotency_key", "=", idempotencyKey)
-      .executeTakeFirst();
+  // Lost the race, or this is a genuine later replay: read the existing row and
+  // apply steps 4-6 exactly. No polling — the spec's contract for IN_PROGRESS
+  // is an immediate 409, not a wait.
+  const row = await db
+    .selectFrom("idempotency_record")
+    .selectAll()
+    .where("institution_id", "=", institutionId)
+    .where("endpoint", "=", endpoint)
+    .where("idempotency_key", "=", idempotencyKey)
+    .executeTakeFirstOrThrow();
 
-    if (!row) {
-      // Vanishingly unlikely (would mean the winner's row was deleted), but the
-      // append-only-adjacent idempotency table has no delete path in this build.
-      await sleep(POLL_INTERVAL_MS);
-      continue;
-    }
-
-    if (!row.request_fingerprint.equals(fingerprint)) {
-      throw new IdempotencyConflictError(institutionId, endpoint, idempotencyKey);
-    }
-
-    if (row.state === "COMPLETE") {
-      return {
-        status: row.response_status as number,
-        body: row.response_body as T,
-        replayed: true,
-      };
-    }
-
-    await sleep(POLL_INTERVAL_MS);
+  if (!row.request_fingerprint.equals(fingerprint)) {
+    throw new IdempotencyKeyReusedError(institutionId, endpoint, idempotencyKey);
   }
 
-  throw new Error(
-    `Idempotency-Key "${idempotencyKey}" never completed for ${institutionId}/${endpoint} within the poll window`,
-  );
+  if (row.state === "IN_PROGRESS") {
+    throw new RequestInProgressError(institutionId, endpoint, idempotencyKey);
+  }
+
+  // state === "COMPLETE", same fingerprint: return the stored result verbatim.
+  return {
+    status: row.response_status as number,
+    body: row.response_body as T,
+    replayed: true,
+  };
+}
+
+/**
+ * §17.4 line 2397's retention policy. No cron/job-runner exists in this build
+ * (Phase 0/1 scope), so this is a callable primitive an operator schedules —
+ * exercised directly by tests rather than by a scheduler that doesn't exist yet.
+ */
+export async function purgeExpiredIdempotencyRecords(
+  db: Kysely<Database>,
+  clock: Clock,
+  retentionDays: number = IDEMPOTENCY_RETENTION_DAYS,
+): Promise<number> {
+  const cutoff = new Date(clock.now().getTime() - retentionDays * 24 * 60 * 60 * 1000);
+  const result = await db.deleteFrom("idempotency_record").where("created_at", "<", cutoff).executeTakeFirst();
+  return Number(result.numDeletedRows ?? 0n);
 }

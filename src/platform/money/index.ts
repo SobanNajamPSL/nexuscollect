@@ -41,6 +41,30 @@ export function parseJsonMinor(value: unknown): MinorAmount {
   throw new TypeError(`parseJsonMinor: ${JSON.stringify(value)} is not a valid minor-unit amount`);
 }
 
+/**
+ * api/openapi.yaml's `MinorAmount` schema is `type: integer, format: int64` — a JSON
+ * number, not a string. CLAUDE.md's own hard rule permits this explicitly: "Serialise
+ * as a string **or a JSON number of minor units**; never a decimal." bigint stays the
+ * only internal representation; this is only the wire-boundary conversion, and it
+ * throws rather than silently truncating if a value would lose precision as a JS
+ * number — every real amount in this system is many orders of magnitude below the
+ * safe-integer ceiling, so this guard should never actually fire, but it's a real
+ * guard, not a hope.
+ */
+export function toWireMinor(amount: MinorAmount): number {
+  if (amount > BigInt(Number.MAX_SAFE_INTEGER) || amount < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new RangeError(
+      `toWireMinor: ${amount} exceeds the safe JSON-integer range — this amount cannot be represented as a wire-format integer without precision loss`,
+    );
+  }
+  return Number(amount);
+}
+
+/** The wire-boundary inverse of toWireMinor — an alias for parseJsonMinor's number branch, named for symmetry. */
+export function fromWireMinor(value: number): MinorAmount {
+  return parseJsonMinor(value);
+}
+
 export function addMinor(a: MinorAmount, b: MinorAmount): MinorAmount {
   return a + b;
 }
