@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import type { Database } from "../db/schema.js";
 import type { Clock } from "../platform/clock/index.js";
 import { loadSchemeCache } from "../modules/resolution/scheme-cache.js";
@@ -24,10 +24,16 @@ import { createPaymentIntentRequestSchema, paymentIntentResponseSchema, confirmP
 import { createPaymentIntent, capturePayment, reversePayment, resolveUncertainPayment, ResolutionTokenInvalidError, HardDuplicatePaymentError } from "../modules/payment/index.js";
 import { checkTrialBalance, checkAllocationIntegrity, checkBalanceRebuild, checkLedgerVsSubledger, verifyLedgerChain } from "../modules/control/index.js";
 import { toWireMinor } from "../platform/money/index.js";
+import { runReconciliation } from "../modules/recon/index.js";
+import { returnInstrument } from "../modules/instrument/index.js";
+import { resetDemoData } from "../loader/reset.js";
+import { DemoClock } from "../platform/clock/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
   clock: Clock;
+  /** Required only for `POST /internal/demo/reset` to know where to reload from. */
+  demoDataDir?: string;
 }
 
 /**
@@ -36,7 +42,7 @@ export interface BuildAppOptions {
  * a DemoClock without binding a real port.
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
-  const { db, clock } = options;
+  const { db, clock, demoDataDir } = options;
   const app = Fastify({ logger: false });
 
   await loadSchemeCache(db);
@@ -605,6 +611,140 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get("/internal/ledger/verify-chain", async (_request, reply) => {
     const chainBreak = await verifyLedgerChain(db);
     return reply.code(200).send(chainBreak ? { intact: false, break: chainBreak } : { intact: true, break: null });
+  });
+
+  // Screen 6's "break the chain" demo button: tampers with one real journal
+  // row via the same DISABLE RULE / restore pattern the test suite itself
+  // uses to prove the append-only rule can only be defeated by explicitly
+  // bypassing it, and that verify-chain still catches it and names the entry.
+  app.post("/internal/demo/tamper-chain", async (_request, reply) => {
+    const entry = await db.selectFrom("journal_entry").select(["id", "entry_no"]).orderBy("entry_no", "asc").limit(1).executeTakeFirst();
+    if (!entry) {
+      return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "No journal entries to tamper with", status: 404, code: "REFERENCE_NOT_FOUND", detail: "The ledger is empty.", retryable: false });
+    }
+    await sql`ALTER TABLE journal_entry DISABLE RULE je_no_update`.execute(db);
+    try {
+      await sql`UPDATE journal_entry SET hash_self = decode('deadbeef', 'hex') WHERE id = ${entry.id}`.execute(db);
+    } finally {
+      await sql`ALTER TABLE journal_entry ENABLE RULE je_no_update`.execute(db);
+    }
+    return reply.code(200).send({ tampered_entry_no: Number(entry.entry_no) });
+  });
+
+  // --- Prompt 3 (scoped): reconciliation break register + instrument return ---
+
+  app.post("/internal/recon/run", async (request, reply) => {
+    const { business_date } = request.body as { business_date: string };
+    const result = await runReconciliation(db, business_date, clock);
+    return reply.code(200).send({
+      run_id: result.runId,
+      break_count: result.breaks.length,
+      breaks: result.breaks.map((b) => ({ break_code: b.breakCode, type: b.type, severity: b.severity, amount_minor: toWireMinor(b.amountMinor), source_ref: b.sourceRef, narrative: b.narrative, auto_resolvable: b.autoResolvable })),
+    });
+  });
+
+  app.get("/internal/instruments", async (_request, reply) => {
+    const rows = await db
+      .selectFrom("instrument")
+      .innerJoin("agency", "agency.id", "instrument.agency_id")
+      .select(["instrument.id", "instrument.instrument_type", "instrument.instrument_number", "instrument.drawee_bank_name", "instrument.drawer_name", "instrument.amount_minor", "instrument.status", "instrument.lodged_on", "instrument.returned_on", "instrument.return_reason_code", "instrument.dishonour_charge_assessment_id", "agency.code as agency_code"])
+      .orderBy("instrument.created_at", "desc")
+      .limit(50)
+      .execute();
+    return reply.code(200).send(rows.map((r) => ({ id: r.id, instrument_type: r.instrument_type, instrument_number: r.instrument_number, drawee_bank_name: r.drawee_bank_name, drawer_name: r.drawer_name, amount_minor: toWireMinor(r.amount_minor), status: r.status, lodged_on: r.lodged_on, returned_on: r.returned_on, return_reason_code: r.return_reason_code, dishonour_charge_assessment_id: r.dishonour_charge_assessment_id, agency_code: r.agency_code })));
+  });
+
+  app.post("/internal/instruments/:instrumentId/return", async (request, reply) => {
+    const { instrumentId } = request.params as { instrumentId: string };
+    const { reason_code } = request.body as { reason_code: string };
+    const result = await returnInstrument(db, instrumentId, reason_code, clock);
+    return reply.code(200).send({
+      reversed_payment_ids: result.reversedPaymentIds,
+      unsettled_assessment_ids: result.unsettledAssessmentIds,
+      voided_receipt_ids: result.voidedReceiptIds,
+      dishonour_assessment_id: result.dishonourAssessmentId,
+    });
+  });
+
+  // --- Prompt 4: demo-mode controls ---
+
+  app.post("/internal/demo/reset", async (_request, reply) => {
+    if (!demoDataDir) {
+      return reply.code(501).send({ type: "https://errors.nexuscollect.example/NOT_CONFIGURED", title: "Reset not configured", status: 501, code: "NOT_CONFIGURED", detail: "buildApp was not given demoDataDir — reset is unavailable.", retryable: false });
+    }
+    // performance.now() is a monotonic timer for measuring how long the reset
+    // itself took to run — not a read of "what time is it" the way Date.now()
+    // is, so it doesn't fall under the injected-Clock rule (which exists so
+    // the DEMO'S OWN notion of "now" never drifts from DemoClock).
+    const startedAt = performance.now();
+    await resetDemoData(db, demoDataDir, clock);
+    return reply.code(200).send({ reset: true, took_ms: Math.round(performance.now() - startedAt) });
+  });
+
+  app.post("/internal/demo/advance-clock", async (request, reply) => {
+    if (!(clock instanceof DemoClock)) {
+      return reply.code(501).send({ type: "https://errors.nexuscollect.example/NOT_CONFIGURED", title: "Clock is not a DemoClock", status: 501, code: "NOT_CONFIGURED", detail: "advance-clock only works when DEMO_MODE pins a DemoClock.", retryable: false });
+    }
+    const body = request.body as { by_ms?: number; to_iso?: string };
+    if (body.to_iso) clock.set(new Date(body.to_iso));
+    else if (body.by_ms) clock.advance(body.by_ms);
+    return reply.code(200).send({ now: clock.now().toISOString() });
+  });
+
+  // --- Public receipt verification (§16.1): no auth, masked payer only. ---
+  app.get("/v1/verify/:receiptNo", async (request, reply) => {
+    const { receiptNo } = request.params as { receiptNo: string };
+    const receipt = await db
+      .selectFrom("receipt")
+      .innerJoin("agency", "agency.id", "receipt.agency_id")
+      .select(["receipt.receipt_no", "receipt.business_date", "receipt.status", "receipt.issued_at", "agency.name as agency_name"])
+      .where("receipt.receipt_no", "=", receiptNo)
+      .executeTakeFirst();
+    if (!receipt) {
+      return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Receipt not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No receipt "${receiptNo}".`, retryable: false });
+    }
+    return reply.code(200).send({ receipt_no: receipt.receipt_no, agency_name: receipt.agency_name, business_date: receipt.business_date, status: receipt.status, issued_at: receipt.issued_at.toISOString() });
+  });
+
+  // --- Agency dashboard: head-wise position (confirmed vs settled real figures;
+  // "swept" is Phase 5/treasury territory — reported as null, not fabricated). ---
+  app.get("/internal/agency/:agencyCode/dashboard", async (request, reply) => {
+    const { agencyCode } = request.params as { agencyCode: string };
+    const agency = await db.selectFrom("agency").selectAll().where("code", "=", agencyCode).executeTakeFirst();
+    if (!agency) {
+      return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Agency not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No agency "${agencyCode}".`, retryable: false });
+    }
+
+    const rows = await db
+      .selectFrom("payment_allocation")
+      .innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id")
+      .innerJoin("revenue_head", "revenue_head.id", "payment_allocation.revenue_head_id")
+      .select(["revenue_head.code as head_code", "revenue_head.name as head_name"])
+      .select(({ fn }) => fn.sum<bigint>("payment_allocation.amount_minor").as("allocated_minor"))
+      .where("assessment.agency_id", "=", agency.id)
+      .where("payment_allocation.status", "=", "APPLIED")
+      .groupBy(["revenue_head.code", "revenue_head.name"])
+      .orderBy("revenue_head.code", "asc")
+      .execute();
+
+    const statusCounts = await db
+      .selectFrom("assessment")
+      .select(["status"])
+      .select(({ fn }) => fn.countAll().as("count"))
+      .select(({ fn }) => fn.sum<bigint>("balance_minor").as("balance_total"))
+      .where("agency_id", "=", agency.id)
+      .groupBy("status")
+      .execute();
+
+    return reply.code(200).send({
+      agency_code: agency.code,
+      agency_name: agency.name,
+      head_wise: rows.map((r) => ({ head_code: r.head_code, head_name: r.head_name, allocated_minor: toWireMinor(BigInt(r.allocated_minor)) })),
+      total_confirmed_minor: toWireMinor(rows.reduce((s, r) => s + BigInt(r.allocated_minor), 0n)),
+      total_settled_minor: toWireMinor(rows.reduce((s, r) => s + BigInt(r.allocated_minor), 0n)), // same real figure — allocation IS the settlement of that portion
+      total_swept_minor: null, // Phase 5 (treasury sweep) — not implemented; disclosed as absent, not fabricated
+      assessment_status_counts: statusCounts.map((s) => ({ status: s.status, count: Number(s.count), balance_total_minor: toWireMinor(BigInt(s.balance_total ?? 0n)) })),
+    });
   });
 
   return app;
