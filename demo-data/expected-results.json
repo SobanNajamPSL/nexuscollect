@@ -1,0 +1,453 @@
+{
+  "generated_at": "2026-07-30T13:00:00Z",
+  "generator": "scripts/generate_demo_data.py (seed 20260730, deterministic)",
+  "business_date_under_reconciliation": "2026-07-30",
+  "entity_counts": {
+    "agencies": 9,
+    "revenue_heads": 35,
+    "reference_schemes": 9,
+    "products": 20,
+    "payers": 40,
+    "payer_accounts": 27,
+    "assessments": 164,
+    "assessment_line_items": 282,
+    "payments": 115,
+    "payment_allocations_total": 218,
+    "payment_allocations_applied": 212,
+    "payment_allocations_reversed": 6,
+    "instruments": 6,
+    "requests_to_pay": 14,
+    "bank_statement_rows": 114,
+    "switch_settlement_rows": 40,
+    "rail_settlement_rows": 42,
+    "scroll_lines": 18,
+    "qr_payloads": 4
+  },
+  "control_totals_minor": {
+    "assessed_total": 2761016500,
+    "payable_total": 2760891500,
+    "allocated_total": 2320652300,
+    "outstanding_balance_total": 440239200,
+    "payments_gross_confirmed": 2358382300,
+    "payments_gross_all": 2422943500,
+    "allocations_applied_total": 2320652300,
+    "allocations_reversed_total": 64411200,
+    "unapplied_total": 37730000,
+    "bank_statement_credit_total": 2330872100,
+    "switch_settlement_total": 871136700,
+    "rail_settlement_txn_total": 887126000,
+    "scroll_total": 372132500
+  },
+  "distributions": {
+    "assessment_status": {
+      "SETTLED": 119,
+      "PARTIALLY_PAID": 7,
+      "OVERDUE": 22,
+      "ISSUED": 16
+    },
+    "payment_status": {
+      "CONFIRMED": 113,
+      "REVERSED": 1,
+      "UNCERTAIN": 1
+    },
+    "payments_by_channel": {
+      "APP": 13,
+      "QR": 10,
+      "BILLER": 10,
+      "ATM": 11,
+      "IBANKING": 15,
+      "CARD": 9,
+      "WALLET": 9,
+      "AGENT": 9,
+      "API": 11,
+      "RTP": 4,
+      "OTC_CASH": 10,
+      "CHEQUE": 4
+    },
+    "payments_by_rail": {
+      "RAAST": 42,
+      "IBFT_1LINK": 30,
+      "PAYPAK": 9,
+      "WALLET": 9,
+      "PRISM_RTGS": 11,
+      "CASH": 10,
+      "CHEQUE_CLEARING": 4
+    },
+    "allocation_waterfalls_used": [
+      "EXPLICIT_ONLY",
+      "OLDEST_FIRST",
+      "PENALTY_FIRST",
+      "PRINCIPAL_FIRST",
+      "PRO_RATA"
+    ],
+    "rtp_states_used": [
+      "ACCEPTED_FUTURE_DATED",
+      "CANCELLED",
+      "DECLINED",
+      "DELIVERED",
+      "EXPIRED",
+      "FULFILLED",
+      "PRESENTED",
+      "UNDELIVERABLE"
+    ],
+    "instrument_status": {
+      "CLEARED": 3,
+      "HELD_POST_DATED": 1,
+      "IN_CLEARING": 1,
+      "RETURNED": 1
+    }
+  },
+  "head_wise_allocated_minor": {
+    "B01101": 844098300,
+    "B01102": 86700000,
+    "B01110": 37110000,
+    "B02341": 264600000,
+    "B02388": 15334500,
+    "B02389": 2116800,
+    "B02391": 4000000,
+    "B03110": 424400000,
+    "B03115": 7170000,
+    "C05110": 2800000,
+    "C05115": 3350000,
+    "C05191": 600000,
+    "E04210": 9000000,
+    "E04215": 29400000,
+    "E04220": 10500000,
+    "E04288": 1985000,
+    "E04291": 21450000,
+    "J07110": 11000000,
+    "J07910": 25000000,
+    "N09110": 1200000,
+    "P02100": 125300000,
+    "R08110": 105500000,
+    "R08115": 5380000,
+    "R08910": 225000000,
+    "S02100": 55000000,
+    "W06110": 2004000,
+    "W06115": 443700,
+    "W06188": 210000
+  },
+  "agency_wise_allocated_minor": {
+    "BOR": 335880000,
+    "ETPB": 72335000,
+    "FBR": 1685529600,
+    "LHC": 36000000,
+    "NADRA": 1200000,
+    "PRA": 125300000,
+    "PSCA": 6750000,
+    "SRB": 55000000,
+    "WASA": 2657700
+  },
+  "planted_reconciliation_breaks": {
+    "total_breaks": 11,
+    "distinct_break_codes": [
+      "B01",
+      "B02",
+      "B03",
+      "B04",
+      "B05",
+      "B06",
+      "B07",
+      "B08",
+      "B09"
+    ],
+    "auto_resolvable_count": 3,
+    "manual_count": 8,
+    "total_break_amount_minor": 89094950,
+    "breaks": [
+      {
+        "break_code": "B01",
+        "type": "UNMATCHED_CREDIT_IN_BANK",
+        "count": 1,
+        "amount_minor": 4750000,
+        "source_ref": "HBL20260730UNK01",
+        "narrative": "TOKEN TAX LEA 17 1000 PAYMENT AHMED",
+        "expected_severity": "MEDIUM",
+        "expected_resolution": "Narrative resolvable: vehicle LEA-17-1000 -> token tax assessment. Analyst proposes MANUAL allocation; approver approves.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B01",
+        "type": "UNMATCHED_CREDIT_IN_BANK",
+        "count": 1,
+        "amount_minor": 12500000,
+        "source_ref": "HBL20260730UNK02",
+        "narrative": "TAX PAYMENT AHMED",
+        "expected_severity": "HIGH",
+        "expected_resolution": "Not resolvable from narrative. Remains unapplied, aged, escalated per SLA; candidate for return to remitter.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B02",
+        "type": "UNMATCHED_PAYMENT_IN_PLATFORM",
+        "count": 1,
+        "amount_minor": 44755200,
+        "source_ref": "P2600019",
+        "narrative": "PSID 12010400002413680 SALES TAX ON GOODS -",
+        "expected_severity": "HIGH",
+        "expected_resolution": "Present in Raast cycle file but absent from bank statement. Verify with rail (pacs.028). Expect late credit or reversal.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B03",
+        "type": "AMOUNT_MISMATCH",
+        "count": 1,
+        "amount_minor": 5000,
+        "source_ref": "P260000D",
+        "narrative": "Bank and switch both show gross less 50.00 PKR",
+        "expected_severity": "LOW",
+        "expected_resolution": "Fee deducted at source. Post fee variance; below auto-write-off threshold only if configured >= 5000 paisa, else manual adjust.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B04",
+        "type": "DUPLICATE_IN_SOURCE",
+        "count": 1,
+        "amount_minor": 12034000,
+        "source_ref": "STAN 587153 / RRN 26211923800",
+        "narrative": "Identical STAN/RRN appears twice in the 1LINK settlement file",
+        "expected_severity": "LOW",
+        "expected_resolution": "Auto-suppress the byte-identical duplicate (rule R6); retain evidence.",
+        "auto_resolvable": true
+      },
+      {
+        "break_code": "B05",
+        "type": "TIMING_DIFFERENCE",
+        "count": 1,
+        "amount_minor": 350000,
+        "source_ref": "P2600001",
+        "narrative": "Platform value date 2026-07-30, bank booking 2026-07-31",
+        "expected_severity": "INFO",
+        "expected_resolution": "Auto-resolves on the next run (rule R1). Must not alarm.",
+        "auto_resolvable": true
+      },
+      {
+        "break_code": "B05",
+        "type": "TIMING_DIFFERENCE",
+        "count": 1,
+        "amount_minor": 300000,
+        "source_ref": "P2600005",
+        "narrative": "Platform value date 2026-07-30, bank booking 2026-07-31",
+        "expected_severity": "INFO",
+        "expected_resolution": "Auto-resolves on the next run (rule R1). Must not alarm.",
+        "auto_resolvable": true
+      },
+      {
+        "break_code": "B06",
+        "type": "UNAPPLIED_RECEIPT_AGED",
+        "count": 1,
+        "amount_minor": 12500000,
+        "source_ref": "P260003H",
+        "narrative": "TAX PAYMENT AHMED",
+        "expected_severity": "HIGH",
+        "expected_resolution": "Aged 14 days. Escalate; propose return to remitter or transfer to unclaimed funds per policy. Never to income.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B07",
+        "type": "FEE_VARIANCE",
+        "count": 1,
+        "amount_minor": 750,
+        "source_ref": "P260000N",
+        "narrative": "Switch fee 17.50 PKR vs contracted 10.00 PKR",
+        "expected_severity": "LOW",
+        "expected_resolution": "Recompute against the rate card; raise with 1LINK; post fee variance.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B08",
+        "type": "SETTLEMENT_SHORTFALL",
+        "count": 1,
+        "amount_minor": 1250000,
+        "source_ref": "RAAST-2026-07-30-C4",
+        "narrative": "Raast cycle declared net is 125,000.00 PKR below the sum of its constituents",
+        "expected_severity": "CRITICAL",
+        "expected_resolution": "Reconcile at transaction level within the cycle; one CYCLE_VARIANCE break, not one per transaction.",
+        "auto_resolvable": false
+      },
+      {
+        "break_code": "B09",
+        "type": "SCROLL_REJECTED",
+        "count": 1,
+        "amount_minor": 650000,
+        "source_ref": "Scroll line 13 head B02391",
+        "narrative": "Treasury ack: HEAD_NOT_VALID_FOR_PERIOD",
+        "expected_severity": "MEDIUM",
+        "expected_resolution": "Classification break, not a cash break. Reclassify head, issue supplementary scroll. Never edit and resend the original.",
+        "auto_resolvable": false
+      }
+    ]
+  },
+  "expected_recon_outcome_three_way_daily": {
+    "note": "A correct engine reconciles the 2026-07-30 value-date population and reports exactly 11 breaks with the codes and amounts above. Nothing more, nothing less.",
+    "platform_payments_on_date_all_statuses": 33,
+    "platform_payments_on_date_confirmed": 32,
+    "expected_exact_matches_bank_vs_platform": 28,
+    "expected_break_count": 11,
+    "must_not_alarm_on": [
+      "B05"
+    ],
+    "must_auto_resolve": [
+      "B04",
+      "B05"
+    ],
+    "must_escalate": [
+      "B08",
+      "B02",
+      "B01(unresolvable)",
+      "B06"
+    ]
+  },
+  "narrative_parsing_test_corpus": [
+    {
+      "narrative": "PSID 41011300000190123 INCOME TAX",
+      "expected": "AUTO_APPLY_EXACT"
+    },
+    {
+      "narrative": "TAX PYMT 4101-1300-0001-9012-3",
+      "expected": "AUTO_APPLY_AFTER_NORMALISATION"
+    },
+    {
+      "narrative": "RF3741011300000190123 PSCA",
+      "expected": "AUTO_APPLY_VIA_RF"
+    },
+    {
+      "narrative": "41011300000190124",
+      "expected": "UNAPPLIED_CHECKSUM_FAILED"
+    },
+    {
+      "narrative": "TOKEN TAX LEA 17 1000",
+      "expected": "REVIEW_QUEUE_SCORE_45"
+    },
+    {
+      "narrative": "TAX PAYMENT AHMED",
+      "expected": "UNAPPLIED_BREAK_RAISED"
+    },
+    {
+      "narrative": "PAYMENT FOR 41011300000190123 AND 71011800000183627",
+      "expected": "REVIEW_QUEUE_AMBIGUOUS_NEVER_GUESS"
+    }
+  ],
+  "demo_walkthrough_anchors": {
+    "multi_payable_vehicle_lookup": {
+      "note": "THE headline demo. POST /v1/resolve with this key must return the open payables only, each with its live amount including any early-payment discount, plus a resolution_token. The settled challan must come back as ALREADY_SETTLED with its receipt, not as NOT_FOUND.",
+      "key_type": "VEHICLE_REG",
+      "key_value": "LEA-17-1000",
+      "expected_open_payables": 3,
+      "open_payables": [
+        {
+          "psid": "31010900000181526",
+          "product_code": "ETPB-TOKEN-CAR",
+          "status": "OVERDUE",
+          "payable_amount_minor": 1000000,
+          "discount_applied_minor": 0,
+          "description": "Motor Vehicle Token Tax - Private Car - 2026-27"
+        },
+        {
+          "psid": "41011300000190123",
+          "product_code": "PSCA-CHALLAN-MOV",
+          "status": "ISSUED",
+          "payable_amount_minor": 375000,
+          "discount_applied_minor": 125000,
+          "description": "Traffic e-Challan - Moving Violation - 2026-07"
+        },
+        {
+          "psid": "41011400000286611",
+          "product_code": "PSCA-CHALLAN-PARK",
+          "status": "OVERDUE",
+          "payable_amount_minor": 300000,
+          "discount_applied_minor": 0,
+          "description": "Traffic e-Challan - Parking - 2026-06"
+        }
+      ],
+      "already_settled_payables": [
+        {
+          "psid": "41011400001606295",
+          "product_code": "PSCA-CHALLAN-PARK",
+          "status": "SETTLED"
+        }
+      ]
+    },
+    "qr_multi_payable_payment": {
+      "note": "One QR scan clearing two challans on one vehicle, oldest first.",
+      "key_type": "VEHICLE_REG",
+      "key_value": "LEA-19-1274",
+      "psids": [
+        "41011300001764709",
+        "41011400001867008"
+      ],
+      "total_paid_minor": 800000
+    },
+    "returned_cheque_chain": {
+      "instrument_id": "IN-0004",
+      "instrument_number": "004822",
+      "amount_minor": 64411200,
+      "return_reason": "INSUFFICIENT_FUNDS",
+      "assessments_unsettled": [
+        "AS-00016",
+        "AS-00017",
+        "AS-00018"
+      ],
+      "psids_unsettled": [
+        "12010400001661551",
+        "12010400001776532",
+        "12010400001899869"
+      ],
+      "dishonour_charge_psid": "12010600005120245",
+      "reversed_allocation_count": 6
+    },
+    "bulk_file": {
+      "bulk_batch_id": "BULK-2026-07-29-0001",
+      "challan_count": 12,
+      "single_credit_minor": 37110000,
+      "allocation_count": 12,
+      "input_file": "bulk_payment_input.csv",
+      "input_row_count": 13,
+      "input_declared_total_minor": 37360000,
+      "expected_validation_outcome": "REJECTED",
+      "expected_invalid_rows": [
+        {
+          "row_no": 13,
+          "psid": "12010100000192486",
+          "error_code": "ALREADY_SETTLED"
+        }
+      ],
+      "note": "13 rows: 12 valid plus one referencing an already-settled PSID. Under the default REJECT_ALL shortfall/validation policy the entire file is rejected and nothing is committed. Rows 1-12 are the batch that was subsequently corrected and funded by the single credit above."
+    },
+    "multi_head_payment_example": {
+      "payment_reference": "P260000E",
+      "gross_amount_minor": 94388000,
+      "channel": "IBANKING",
+      "rail": "RAAST",
+      "allocations": [
+        {
+          "revenue_head_code": "B02391",
+          "amount_minor": 1100000
+        },
+        {
+          "revenue_head_code": "B02388",
+          "amount_minor": 1288000
+        },
+        {
+          "revenue_head_code": "B01101",
+          "amount_minor": 92000000
+        }
+      ]
+    },
+    "unapplied_receipts": [
+      {
+        "payment_reference": "P260003G",
+        "amount_minor": 4750000,
+        "narrative": "TOKEN TAX LEA 17 1000 PAYMENT AHMED",
+        "resolvable": true
+      },
+      {
+        "payment_reference": "P260003H",
+        "amount_minor": 12500000,
+        "narrative": "TAX PAYMENT AHMED",
+        "resolvable": false,
+        "age_days": 14
+      }
+    ]
+  }
+}

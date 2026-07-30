@@ -1,0 +1,3198 @@
+openapi: 3.1.0
+
+info:
+  title: NexusCollect — Person-to-Government (P2G) Collection Platform API
+  version: 1.0.0
+  summary: Multi-rail, multi-channel government revenue collection engine.
+  description: |
+    Machine-readable contract for the platform specified in
+    `P2G-Collection-Platform-Design.md`. Section references below (e.g. §8.2)
+    point at that document, which is the normative source for behaviour that a
+    schema cannot express.
+
+    ## Six API surfaces
+    | Surface | Base path | Consumers |
+    |---|---|---|
+    | Channel | `/v1` | Banks, EMIs, PSPs — resolve, quote, pay |
+    | Agency | `/v1/agency` | Government assessment systems |
+    | Biller/Switch | `/switch/v1` | 1LINK-style aggregators, four-message contract |
+    | Back-office | `/admin/v1` | Platform + agency operators |
+    | Public | `/public/v1` | Unauthenticated receipt verification |
+    | Internal | `/internal` | Control assertions, network-isolated |
+
+    ## Non-negotiable client obligations
+    1. **Money is integer minor units.** Every `*_minor` field is paisa
+       (1 PKR = 100 paisa) as a 64-bit integer. Never send or expect a decimal.
+    2. **`Idempotency-Key` is REQUIRED** on every state-changing request.
+       Replay returns the original status and body with `X-Idempotent-Replay: true`.
+       Same key + different body ⇒ `422 IDEMPOTENCY_KEY_REUSED`. (§17.4)
+    3. **All server-to-server calls use mTLS + OAuth2 client credentials + a
+       detached JWS** over `(method, path, sha256(body), timestamp, nonce)`. (§17.2)
+    4. **`resolution_token` from `POST /v1/resolve` is mandatory** when creating a
+       payment intent. It binds the amount the payer was shown to the payable
+       set for 5 minutes and closes the stale-amount replay hole. (§8.2)
+    5. **Never treat a timeout as a failure.** A capture that does not return a
+       definite outcome leaves the payment `UNCERTAIN`; poll
+       `GET /v1/payments` by `intent_reference`. Do not re-debit the payer. (§9.4)
+    6. **Trust the webhook, never the browser redirect**, for checkout results. (§8.12)
+  contact:
+    name: NexusCollect Platform Engineering
+    email: platform@nexuscollect.example
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.nexuscollect.example
+    description: Production
+  - url: https://sandbox.api.nexuscollect.example
+    description: Sandbox — deterministic data, injectable failures (§22.5)
+
+tags:
+  - name: Resolution
+    description: Reference/attribute → payables. The front door of every journey (§8.2).
+  - name: Payment Initiation
+    description: Intents, captures, reversals, receipts (§8.4).
+  - name: Request to Pay
+    description: Payee-initiated, payer-authorised collection (§8.3).
+  - name: Instruments
+    description: Cheque, pay order, demand draft lodgement and clearing (§8.8).
+  - name: Bulk
+    description: Corporate multi-challan file payments (§8.10).
+  - name: Mandates
+    description: Standing authority for recurring collection (§8.11).
+  - name: Checkout
+    description: Hosted checkout for agency portals (§8.12).
+  - name: Agency
+    description: Assessment intake, settlement, statements, refunds.
+  - name: Switch
+    description: Aggregator four-message biller contract (§4.2, §8.6).
+  - name: Reconciliation
+    description: Runs, breaks, maker-checker adjustments (§12).
+  - name: Settlement
+    description: Cycles, sweeps, scrolls (§13).
+  - name: Reports
+  - name: Public
+  - name: Internal Controls
+    description: The five reperformance assertions (§10.8).
+
+security:
+  - oauth2ClientCredentials: [resolve.read]
+
+paths:
+
+  # ==========================================================================
+  # RESOLUTION
+  # ==========================================================================
+  /v1/resolve:
+    post:
+      tags: [Resolution]
+      operationId: resolveReference
+      summary: Resolve any reference or attribute to payable(s)
+      description: |
+        Accepts a PSID, consumer number, ISO 11649 RF reference, vehicle
+        registration, CNIC, NTN, case number, application number, EMVCo QR
+        payload or Raast alias, and returns zero, one or many payables (§7.5).
+
+        **Behaviour that matters:**
+        - Checksum is validated **offline first**; a bad check digit returns
+          `400 INVALID_REFERENCE_CHECKSUM` with no database lookup.
+        - Amounts are recomputed to *today* — surcharge accrual, early-payment
+          discount, rounding — so a stale amount is never returned (§15.4).
+        - An already-paid payable returns `ALREADY_SETTLED` **with its receipt**.
+          This is the single most effective duplicate-payment prevention in the
+          platform; clients MUST display it (§14.5).
+        - Identity-keyed lookups (`CNIC`, `NTN`, `RAAST_ID`) require step-up
+          authentication or an institutional identity assertion (§20.6).
+        - Response is shaped by privacy policy: payer name may be masked
+          depending on the key type and authentication level.
+        - p99 latency budget **300 ms** — it sits inside ATM and switch timeouts.
+      security:
+        - oauth2ClientCredentials: [resolve.read]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/InstitutionId'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Nonce'
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResolveRequest' }
+            examples:
+              byPsid:
+                summary: By PSID
+                value:
+                  key_type: PSID
+                  key_value: "41000000000190124"
+                  channel: APP
+              byVehicle:
+                summary: By vehicle registration — the multi-payable headline demo
+                value:
+                  key_type: VEHICLE_REG
+                  key_value: "LEA-17-1000"
+                  channel: APP
+              byQr:
+                summary: By scanned EMVCo QR payload
+                value:
+                  key_type: QR_PAYLOAD
+                  key_value: "00020101021226340008PK.RAAST0112NEXUSCOLLECT..."
+                  channel: QR
+      responses:
+        '200':
+          description: |
+            Zero or more payables. **An empty list is a 200, not a 404** — the
+            reference was well-formed and the lookup succeeded; nothing is due.
+          headers:
+            X-RateLimit-Remaining: { $ref: '#/components/headers/RateLimitRemaining' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolveResponse' }
+              examples:
+                threePayables:
+                  summary: LEA-17-1000 — 3 open payables plus 1 already settled
+                  value:
+                    resolution_token: "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    token_expires_at: "2026-07-30T14:37:00Z"
+                    payables:
+                      - psid: "31000000000181522"
+                        agency_code: ETPB
+                        agency_name: "Excise, Taxation & Narcotics Control, Punjab"
+                        product_code: ETPB-TOKEN-CAR
+                        label: "Motor Vehicle Token Tax - Private Car - 2026-27"
+                        payable_amount_minor: 1000000
+                        min_payable_minor: 1000000
+                        currency: PKR
+                        due_date: "2026-06-30"
+                        status: OVERDUE
+                        partial_allowed: false
+                        fee_amount_minor: 2500
+                        fee_bearer: PAYER
+                        head_breakdown:
+                          - revenue_head_code: E04210
+                            line_type: PRINCIPAL
+                            amount_minor: 1000000
+                      - psid: "41000000000190124"
+                        agency_code: PSCA
+                        agency_name: Punjab Safe Cities Authority
+                        product_code: PSCA-CHALLAN-MOV
+                        label: "Traffic e-Challan - Moving Violation - 2026-07"
+                        payable_amount_minor: 375000
+                        discount_applied_minor: 125000
+                        discount_expires_on: "2026-08-01"
+                        currency: PKR
+                        due_date: "2026-08-06"
+                        status: ISSUED
+                        partial_allowed: false
+                        payer_name_masked: "M****** A***d K***"
+                      - psid: "41000000000286617"
+                        agency_code: PSCA
+                        product_code: PSCA-CHALLAN-PARK
+                        label: "Traffic e-Challan - Parking - 2026-06"
+                        payable_amount_minor: 300000
+                        currency: PKR
+                        status: OVERDUE
+                        partial_allowed: false
+                    settled:
+                      - psid: "41000000001606293"
+                        status: SETTLED
+                        settled_on: "2026-07-27"
+                        receipt_no: "PSCA20260727000004412"
+                        code: ALREADY_SETTLED
+                emptyResult:
+                  summary: Well-formed reference, nothing outstanding
+                  value:
+                    resolution_token: null
+                    payables: []
+                    settled: []
+        '400':
+          description: Malformed reference or failed checksum
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                checksum:
+                  value:
+                    type: "https://errors.nexuscollect.example/INVALID_REFERENCE_CHECKSUM"
+                    title: Invalid reference checksum
+                    status: 400
+                    code: INVALID_REFERENCE_CHECKSUM
+                    detail: "Damm check digit failed for 41000000000190125."
+                    payer_message: "That number doesn't look right — please check and re-enter."
+                    payer_message_ur: "یہ نمبر درست نہیں لگتا — براہ کرم دوبارہ درج کریں۔"
+                    retryable: false
+        '401':
+          description: Step-up authentication required for an identity-keyed lookup
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/ChannelNotEligible' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/AgencyUnavailable' }
+
+  # ==========================================================================
+  # PAYMENT INITIATION
+  # ==========================================================================
+  /v1/payment-intents:
+    post:
+      tags: [Payment Initiation]
+      operationId: createPaymentIntent
+      summary: Create a quote (payment intent)
+      description: |
+        Turns a resolved payable set plus an amount into a priced, provable
+        quote. Reserves nothing and moves no money. Requires the
+        `resolution_token` from `POST /v1/resolve`.
+
+        Fees and any tax on fees are computed here and MUST be shown to the
+        payer before authorisation (§15.5). The intent stores what the payer was
+        shown, so the quote is auditable years later.
+      security:
+        - oauth2ClientCredentials: [payments.write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/InstitutionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePaymentIntentRequest' }
+            examples:
+              single:
+                value:
+                  resolution_token: "eyJhbGciOiJFUzI1NiJ9..."
+                  channel: APP
+                  requested_amount_minor: 375000
+                  payables: [{ psid: "41000000000190124" }]
+              multiExplicit:
+                summary: Two challans, payer chose the split
+                value:
+                  resolution_token: "eyJhbGciOiJFUzI1NiJ9..."
+                  channel: QR
+                  requested_amount_minor: 800000
+                  payables:
+                    - psid: "41000000001764706"
+                      amount_minor: 600000
+                    - psid: "41000000001867003"
+                      amount_minor: 200000
+              thirdParty:
+                summary: A lawyer paying a client's court fee
+                value:
+                  resolution_token: "eyJhbGciOiJFUzI1NiJ9..."
+                  channel: IBANKING
+                  requested_amount_minor: 1500000
+                  payables: [{ psid: "61000000000341887" }]
+                  third_party_payer:
+                    name: "Adv. Kamran Akmal Dar"
+                    id_type: CNIC
+                    id_last4: "0413"
+                    relationship: LEGAL_REPRESENTATIVE
+                    contact_msisdn: "+923004411278"
+      responses:
+        '201':
+          description: Intent created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentIntent' }
+        '409':
+          description: |
+            `RESOLUTION_TOKEN_EXPIRED`, `AMOUNT_CHANGED` (surcharge accrued —
+            the new amount is in the problem body), `ALREADY_SETTLED`,
+            `PAYABLE_EXPIRED`, or `REQUEST_IN_PROGRESS`.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: |
+            `PARTIAL_NOT_ALLOWED`, `AMOUNT_BELOW_MINIMUM`,
+            `AMOUNT_ABOVE_MAXIMUM`, or `IDEMPOTENCY_KEY_REUSED`.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/LimitExceeded' }
+
+  /v1/payment-intents/{intentReference}:
+    get:
+      tags: [Payment Initiation]
+      operationId: getPaymentIntent
+      parameters:
+        - name: intentReference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentIntent' }
+          description: Intent
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/payment-intents/{intentReference}/cancel:
+    post:
+      tags: [Payment Initiation]
+      operationId: cancelPaymentIntent
+      summary: Abandon a payment intent
+      description: |
+        Marks the intent `ABANDONED`. Releases nothing — an intent never held
+        anything. A credit that arrives afterwards is still applied and the intent
+        transitions to `COMPLETED_LATE` (§9.3).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: intentReference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Abandoned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentIntent' }
+        '409':
+          description: Already captured or completed
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/payments:
+    post:
+      tags: [Payment Initiation]
+      operationId: confirmPayment
+      summary: Confirm a captured payment
+      description: |
+        Called by the initiating institution once the payer has been debited and
+        funds have been pushed, or by a rail adapter on receipt of a credit.
+
+        Runs the whole apply pipeline (§11.1) inside one transaction: identify →
+        deduplicate → derive targets → validate → allocate → residual → post
+        journals → issue receipt number. Rendering, notifications and webhooks
+        happen after commit, off the transactional outbox. p99 budget **800 ms**.
+
+        **Late and mismatched money is still accepted.** A credit arriving after
+        the intent expired, or for a different amount than quoted, is applied —
+        never rejected. Rejecting money that has already left the payer's
+        account converts a solved problem into a complaint (§8.4).
+      security:
+        - oauth2ClientCredentials: [payments.write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/InstitutionId'
+        - $ref: '#/components/parameters/Signature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmPaymentRequest' }
+            examples:
+              raastApp:
+                value:
+                  intent_reference: "IP26K3M7Q20"
+                  channel: APP
+                  rail: RAAST
+                  gross_amount_minor: 377500
+                  currency: PKR
+                  rail_e2e_id: "E2EP26K3M7Q20017"
+                  rail_uetr: "9f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
+                  payer_bank_bic: HABBPKKA
+                  payer_account_masked: "PK**************3421"
+                  remittance_raw: "PSID 41000000000190124 TRAFFIC CHALLAN"
+              unsolicited:
+                summary: Credit with no intent — PSID in the narrative only
+                value:
+                  channel: API
+                  rail: PRISM_RTGS
+                  gross_amount_minor: 4750000
+                  currency: PKR
+                  rail_e2e_id: "RTGS20260730009911"
+                  payer_bank_bic: UNILPKKA
+                  remittance_raw: "TOKEN TAX LEA 17 1000 PAYMENT AHMED"
+      responses:
+        '201':
+          description: |
+            Payment recorded and applied. `unapplied_amount_minor > 0` means some
+            of the money could not be allocated and is now sitting in the
+            Unapplied Receipts liability account awaiting investigation (§8.15).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+              examples:
+                applied:
+                  value:
+                    payment_reference: "P26K3M7Q2"
+                    status: CONFIRMED
+                    finality: FINAL
+                    gross_amount_minor: 377500
+                    fee_amount_minor: 2500
+                    unapplied_amount_minor: 0
+                    value_date: "2026-07-30"
+                    obligation_discharge_date: "2026-07-30"
+                    cutoff_reason: SAME_DAY
+                    allocations:
+                      - psid: "41000000000190124"
+                        revenue_head_code: C05110
+                        line_type: PRINCIPAL
+                        amount_minor: 375000
+                        allocation_basis: EXPLICIT
+                    receipt:
+                      receipt_no: "PSCA20260730000012345"
+                      verify_code: "K7M2QP4X"
+                      issued_at: "2026-07-30T14:32:41Z"
+                    settled_psids: ["41000000000190124"]
+                    still_open_psids: []
+        '202':
+          description: |
+            `PAYMENT_UNCERTAIN` — the outcome could not be determined. Poll
+            `GET /v1/payments`. **Do not re-debit the payer, and do not show the
+            payer a failure.** (§9.4)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '409':
+          description: '`DUPLICATE_PAYMENT` — the original payment is returned in the body.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Payment Initiation]
+      operationId: listPayments
+      summary: Search payments (cursor-paginated)
+      parameters:
+        - { name: intent_reference, in: query, schema: { type: string } }
+        - { name: payment_reference, in: query, schema: { type: string } }
+        - { name: rail_e2e_id, in: query, schema: { type: string } }
+        - { name: psid, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/PaymentStatus' } }
+        - { name: value_date_from, in: query, schema: { type: string, format: date } }
+        - { name: value_date_to, in: query, schema: { type: string, format: date } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of payments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Payment' }
+                  next_cursor: { type: [string, 'null'] }
+                  has_more: { type: boolean }
+
+  /v1/payments/{paymentReference}:
+    get:
+      tags: [Payment Initiation]
+      operationId: getPayment
+      parameters:
+        - name: paymentReference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Payment with allocations, receipt and application trace
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/payments/{paymentReference}/reverse:
+    post:
+      tags: [Payment Initiation]
+      operationId: reversePayment
+      summary: Reverse a payment
+      description: |
+        Executes the reversal cascade (§14.3) as one transaction: reverse
+        allocations, restore assessment balances and statuses, re-close any
+        released service gate, void the receipt, post the contra journal entry,
+        and raise a settlement adjustment or an agency recovery item if the
+        money has already been swept.
+
+        Teller reversals are permitted only same-till, same-business-date,
+        before till close, and only with supervisor approval.
+      security:
+        - oauth2ClientCredentials: [payments.write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: paymentReference
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason_code, initiator]
+              properties:
+                reason_code:
+                  type: string
+                  enum: [TELLER_KEYING_ERROR, SWITCH_TIMEOUT, RAIL_RETURN,
+                         MISALLOCATION, DUPLICATE, CHEQUE_RETURNED, CHARGEBACK,
+                         AGENCY_INSTRUCTION]
+                initiator: { type: string, enum: [TELLER, SWITCH, RAIL, OPS, AGENCY] }
+                amount_minor:
+                  type: integer
+                  format: int64
+                  description: Omit for a full reversal; supply for a partial.
+                approval_id: { type: string, format: uuid }
+                narrative: { type: string, maxLength: 300 }
+      responses:
+        '200':
+          description: Reversed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+        '403':
+          description: '`INSUFFICIENT_APPROVAL` — maker-checker not complete.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: 'Outside the reversal window, or `PERIOD_CLOSED`.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/payments/{paymentReference}/receipt:
+    get:
+      tags: [Payment Initiation]
+      operationId: getReceipt
+      summary: Retrieve the receipt (CPR-equivalent)
+      description: |
+        Returns the receipt as JSON, PDF/A-3, or HTML by `Accept` header. A
+        receipt against an uncleared instrument is visibly marked
+        `PROVISIONAL — subject to realisation of instrument` (§16.1).
+      parameters:
+        - name: paymentReference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Receipt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Receipt' }
+            application/pdf:
+              schema: { type: string, format: binary }
+            text/html:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ==========================================================================
+  # REQUEST TO PAY
+  # ==========================================================================
+  /v1/requests-to-pay:
+    post:
+      tags: [Request to Pay]
+      operationId: createRequestToPay
+      summary: Create a Request to Pay
+      description: |
+        Sends an alias-addressed request to a payer asking them to authorise a
+        payment (ISO 20022 `pain.013`; status via `pain.014`). §8.3.
+
+        **An RtP changes no balance and posts no journal entry.** It is a
+        request, not a receivable. Only the resulting credit moves money.
+
+        Alias resolution can fail with `ALIAS_EXPIRED`, which is a real,
+        non-retryable state — Raast IDs support an expiry date (§4.1).
+      security:
+        - oauth2ClientCredentials: [rtp.write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRtpRequest' }
+            examples:
+              tokenTaxReminder:
+                value:
+                  psids: ["31000000000181522"]
+                  payer_alias_type: MSISDN
+                  payer_alias_value: "+923011000000"
+                  amount_modifiable: false
+                  expires_at: "2026-08-06T23:59:00Z"
+                  message_to_payer: "Motor vehicle token tax 2026-27 for LEA-17-1000 is overdue."
+              acceptNowPayLater:
+                value:
+                  psids: ["31000000000181522"]
+                  payer_alias_type: MSISDN
+                  payer_alias_value: "+923011000000"
+                  amount_modifiable: true
+                  requested_execution_date: "2026-08-05"
+                  expires_at: "2026-08-04T23:59:00Z"
+      responses:
+        '201':
+          description: RtP created and dispatched
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestToPay' }
+        '404':
+          description: '`ALIAS_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`ALIAS_EXPIRED`, `ALREADY_SETTLED`, or `PAYABLE_EXPIRED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/requests-to-pay/{rtpReference}:
+    get:
+      tags: [Request to Pay]
+      operationId: getRequestToPay
+      parameters:
+        - name: rtpReference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: RtP
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestToPay' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/requests-to-pay/{rtpReference}/cancel:
+    post:
+      tags: [Request to Pay]
+      operationId: cancelRequestToPay
+      description: Withdraw an outstanding RtP, e.g. because the agency cancelled the demand.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: rtpReference
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason_code: { type: string, enum: [AGENCY_WITHDRAWN, ASSESSMENT_CANCELLED, ASSESSMENT_AMENDED, DUPLICATE_REQUEST] }
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestToPay' }
+
+  /v1/requests-to-pay/{rtpReference}/remind:
+    post:
+      tags: [Request to Pay]
+      operationId: remindRequestToPay
+      description: |
+        Issue a reminder for an expired or unanswered RtP. Capped by
+        `reminder_policy` and subject to quiet hours. **A DECLINED RtP is never
+        reminded** — retry an expiry, never a refusal (§8.3).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: rtpReference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: New linked RtP created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestToPay' }
+        '422':
+          description: 'Reminder cap reached, quiet hours, or the RtP was declined.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/requests-to-pay/bulk:
+    post:
+      tags: [Request to Pay]
+      operationId: createBulkRequestToPay
+      summary: Bulk RtP campaign
+      description: |
+        Dispatch up to 50,000 RtPs from one call — e.g. an annual token-tax
+        reminder run. Throttled, per-row outcome reported, and killable
+        mid-flight via `POST /v1/requests-to-pay/bulk/{id}/stop`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campaign_name, rows]
+              properties:
+                campaign_name: { type: string }
+                dispatch_rate_per_minute: { type: integer, default: 5000 }
+                respect_quiet_hours: { type: boolean, default: true }
+                rows:
+                  type: array
+                  maxItems: 50000
+                  items: { $ref: '#/components/schemas/CreateRtpRequest' }
+      responses:
+        '202':
+          description: Campaign accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkBatch' }
+
+  # ==========================================================================
+  # INSTRUMENTS
+  # ==========================================================================
+  /v1/instruments:
+    post:
+      tags: [Instruments]
+      operationId: lodgeInstrument
+      summary: Lodge a cheque, pay order or demand draft and link it to payables
+      description: |
+        **This is the cheque-linking operation** (§8.8). One instrument may be
+        linked to several assessments and the sum of links must not exceed the
+        face value.
+
+        Whether a provisional credit is granted at lodgement is governed by the
+        product's `instrument_credit_policy`:
+        `ON_CLEARING` (no allocation yet), `PROVISIONAL_ON_LODGEMENT`
+        (allocate now, `finality=PROVISIONAL`), or
+        `PROVISIONAL_WITH_GATE_HOLD` (allocate but withhold the service gate).
+
+        Validation rejects stale instruments (>6 months), unauthorised
+        post-dating, and a face value that does not reconcile to the links.
+      security:
+        - oauth2ClientCredentials: [payments.write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LodgeInstrumentRequest' }
+            examples:
+              chequeThreeChallans:
+                summary: One cheque clearing three tax challans
+                value:
+                  instrument_type: CHEQUE
+                  instrument_number: "004821"
+                  drawee_bank_bic: HABBPKKA
+                  drawee_branch_code: "0142"
+                  drawer_name: "Ahmed Traders (Pvt) Ltd"
+                  instrument_date: "2026-07-26"
+                  amount_minor: 128486700
+                  lodged_at_branch: "HBL-0142"
+                  links:
+                    - { psid: "12000000000114329", amount_minor: 40122400 }
+                    - { psid: "12000000000221806", amount_minor: 43654100 }
+                    - { psid: "12000000000335523", amount_minor: 44710200 }
+              postDated:
+                value:
+                  instrument_type: POST_DATED_CHEQUE
+                  instrument_number: "004823"
+                  drawee_bank_bic: ALFHPKKA
+                  instrument_date: "2026-08-11"
+                  amount_minor: 1240000
+                  links: [{ psid: "31000000000459112", amount_minor: 1240000 }]
+      responses:
+        '201':
+          description: Lodged
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Instrument' }
+        '422':
+          description: |
+            `INSTRUMENT_STALE`, `POST_DATING_NOT_ALLOWED`,
+            `LINK_TOTAL_EXCEEDS_FACE_VALUE`, or `INSTRUMENT_NOT_ALLOWED_FOR_PRODUCT`.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/instruments/{instrumentId}/present:
+    post:
+      tags: [Instruments]
+      operationId: presentInstrument
+      description: Send the instrument into clearing; assigns the expected clearing value date.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: In clearing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Instrument' }
+
+  /v1/instruments/{instrumentId}/clear:
+    post:
+      tags: [Instruments]
+      operationId: clearInstrument
+      description: |
+        Mark cleared. Converts provisional allocations to final, releases any
+        withheld service gate, and issues (or re-issues as final) the receipt.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cleared_on: { type: string, format: date }
+      responses:
+        '200':
+          description: Cleared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Instrument' }
+
+  /v1/instruments/{instrumentId}/return:
+    post:
+      tags: [Instruments]
+      operationId: returnInstrument
+      summary: Record a dishonour and run the full cascade
+      description: |
+        Triggers the dishonour cascade (§14.6): reverse every allocation for this
+        instrument, contra the journals, restore assessment balances, **resume
+        surcharge accrual from the original due date** (no surcharge holiday is
+        earned by a bounced cheque), void the receipts, re-close the service
+        gate, raise a dishonour-charge assessment if configured, notify payer and
+        agency, and flag the payer's cheque-acceptance risk.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [return_reason_code, returned_on]
+              properties:
+                return_reason_code:
+                  type: string
+                  enum: [INSUFFICIENT_FUNDS, SIGNATURE_DIFFERS, STALE_DATED, POST_DATED,
+                         AMOUNT_WORDS_FIGURES_DIFFER, PAYMENT_STOPPED, ACCOUNT_CLOSED,
+                         MATERIAL_ALTERATION, ACCOUNT_DORMANT, DRAWER_DECEASED]
+                returned_on: { type: string, format: date }
+                raise_dishonour_charge: { type: boolean, default: true }
+      responses:
+        '200':
+          description: |
+            Returned. Response enumerates every downstream effect so the caller
+            can show the operator exactly what changed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Instrument'
+                  - type: object
+                    properties:
+                      reversed_allocation_count: { type: integer }
+                      unsettled_psids: { type: array, items: { type: string } }
+                      voided_receipt_nos: { type: array, items: { type: string } }
+                      dishonour_charge_psid: { type: [string, 'null'] }
+                      service_gates_reclosed: { type: array, items: { type: string } }
+                      agency_recovery_required: { type: boolean }
+
+  # ==========================================================================
+  # BULK PAYMENTS
+  # ==========================================================================
+  /v1/bulk-payments:
+    post:
+      tags: [Bulk]
+      operationId: submitBulkPayment
+      summary: Submit a bulk payment file for validation
+      description: |
+        §8.10. **The whole file is validated before any of it is accepted.** Row
+        level: checksum, existence, open status, amount, currency. File level:
+        control record count and total, plus duplicate-file detection by content
+        hash. A control-total mismatch fails the file — a partially-parsed file
+        would produce dozens of spurious breaks.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, declared_row_count, declared_total_minor]
+              properties:
+                file: { type: string, format: binary }
+                file_format: { type: string, enum: [CSV, FIXED_WIDTH, PAIN001_XML], default: CSV }
+                declared_row_count: { type: integer }
+                declared_total_minor: { type: integer, format: int64 }
+                shortfall_policy:
+                  type: string
+                  enum: [REJECT_ALL, APPLY_PRO_RATA, APPLY_IN_ORDER_UNTIL_EXHAUSTED]
+                  default: REJECT_ALL
+      responses:
+        '200':
+          description: Validation report — nothing committed yet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkValidationReport' }
+        '422':
+          description: '`CONTROL_TOTAL_MISMATCH` or `DUPLICATE_FILE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/bulk-payments/{batchId}/confirm:
+    post:
+      tags: [Bulk]
+      operationId: confirmBulkPayment
+      description: |
+        Commit the validated batch and return the reference the corporate must
+        quote on the single funding credit.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: batchId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Confirmed, awaiting funds
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkBatch' }
+
+  # ==========================================================================
+  # MANDATES
+  # ==========================================================================
+  /v1/mandates:
+    post:
+      tags: [Mandates]
+      operationId: createMandate
+      summary: Establish a standing collection authority
+      description: |
+        §8.11. Implemented as an automated RtP with pre-granted consent, so there
+        is exactly one collection engine and one reconciliation behaviour.
+        **Pre-notification before each debit is mandatory.**
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMandateRequest' }
+      responses:
+        '201':
+          description: Mandate created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mandate' }
+
+  /v1/mandates/{mandateId}:
+    delete:
+      tags: [Mandates]
+      operationId: revokeMandate
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: mandateId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Revoked }
+
+  # ==========================================================================
+  # CHECKOUT
+  # ==========================================================================
+  /v1/checkout-sessions:
+    post:
+      tags: [Checkout]
+      operationId: createCheckoutSession
+      summary: Create a hosted checkout session
+      description: |
+        §8.12. Returns a hosted URL presenting every eligible channel.
+        **The agency must act only on the server-to-server webhook (or a
+        server-side status read), never on the browser redirect** — the redirect
+        is attacker-controlled.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [psids, success_url, cancel_url]
+              properties:
+                psids: { type: array, items: { type: string } }
+                success_url: { type: string, format: uri }
+                cancel_url: { type: string, format: uri }
+                locale: { type: string, enum: [en, ur], default: en }
+                expires_in_seconds: { type: integer, default: 1800 }
+                channels_offered:
+                  type: array
+                  items: { $ref: '#/components/schemas/Channel' }
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id: { type: string }
+                  checkout_url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+
+  # ==========================================================================
+  # AGENCY
+  # ==========================================================================
+  /v1/agency/assessments:
+    post:
+      tags: [Agency]
+      operationId: createAssessment
+      summary: Push an assessment (create a payable obligation)
+      description: |
+        The agency states who owes what, for what, by when, and how it maps to
+        revenue heads. The platform mints the PSID (or accepts the agency's own
+        reference if the product's scheme is not platform-minted).
+
+        `line_items` are **mandatory and must sum to `assessed_amount_minor`**.
+        Head-level line items are what allow one payment to be split
+        deterministically across revenue heads (§6.5).
+      security:
+        - oauth2ClientCredentials: [assessments.write]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAssessmentRequest' }
+            examples:
+              corporateTax:
+                summary: Company income tax across three revenue heads
+                value:
+                  product_code: FBR-IT-COMP
+                  external_ref: "DEMAND/IT/2026/4100"
+                  payer:
+                    payer_type: COMPANY
+                    primary_id_type: NTN
+                    primary_id_value: "1000000-1"
+                    name: "Ahmed Traders (Pvt) Ltd"
+                    msisdn_e164: "+923001000000"
+                  currency: PKR
+                  assessed_amount_minor: 4000000000
+                  issue_date: "2026-06-15"
+                  due_date: "2026-07-15"
+                  line_items:
+                    - { seq: 1, line_type: PRINCIPAL, revenue_head_code: B01101, tax_period: "2025-26", amount_minor: 3500000000 }
+                    - { seq: 2, line_type: SURCHARGE, revenue_head_code: B02388, tax_period: "2025-26", amount_minor: 490000000 }
+                    - { seq: 3, line_type: PENALTY,   revenue_head_code: B02391, tax_period: "2025-26", amount_minor: 10000000 }
+                  metadata: { tax_year: "2025-26", assessment_order: "AO-9100" }
+              trafficChallan:
+                summary: Fine, resolvable by vehicle, early-payment discount
+                value:
+                  product_code: PSCA-CHALLAN-MOV
+                  external_ref: "CHL-PSCA-2026-0779123"
+                  currency: PKR
+                  assessed_amount_minor: 500000
+                  issue_date: "2026-07-22"
+                  due_date: "2026-08-06"
+                  expiry_date: "2026-10-28"
+                  line_items:
+                    - { seq: 1, line_type: PRINCIPAL, revenue_head_code: C05110, amount_minor: 500000 }
+                  metadata:
+                    vehicle_reg: "LEA-17-1000"
+                    violation: "Over-speeding 78/60 km/h"
+                    camera_id: "PSCA-CAM-0412"
+      responses:
+        '201':
+          description: Assessment created; PSID minted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assessment' }
+        '422':
+          description: '`LINE_ITEMS_DO_NOT_SUM`, `REVENUE_HEAD_INVALID_FOR_PERIOD`, `PRODUCT_NOT_ACTIVE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [Agency]
+      operationId: searchAssessments
+      parameters:
+        - { name: psid, in: query, schema: { type: string } }
+        - { name: external_ref, in: query, schema: { type: string } }
+        - { name: product_code, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/AssessmentStatus' } }
+        - { name: due_date_from, in: query, schema: { type: string, format: date } }
+        - { name: due_date_to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, description: Free-text over payer name and metadata, schema: { type: string } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of assessments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Assessment' } }
+                  next_cursor: { type: [string, 'null'] }
+                  has_more: { type: boolean }
+
+  /v1/agency/assessments/{psid}:
+    get:
+      tags: [Agency]
+      operationId: getAssessment
+      parameters:
+        - { name: psid, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Assessment with line items, allocations and payment history
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assessment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Agency]
+      operationId: amendAssessment
+      summary: Amend an assessment (creates a new version, same PSID)
+      description: |
+        Never mutates a paid assessment in place. Creates version `v+1`, keeps
+        the **same PSID** (the payer may already have written it down), marks the
+        prior version `AMENDED`, and carries allocations forward.
+
+        Amending **downward below what has already been paid** automatically
+        recognises an overpayment and routes it per the product's
+        `overpay_treatment` (§14.2).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: psid, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason_code, expected_version]
+              properties:
+                expected_version: { type: integer, description: Optimistic lock. }
+                reason_code:
+                  type: string
+                  enum: [APPEAL_ALLOWED, RECTIFICATION_ORDER, CLERICAL_ERROR,
+                         REASSESSMENT, WAIVER_GRANTED, DISCOUNT_APPLIED]
+                assessed_amount_minor: { type: integer, format: int64 }
+                due_date: { type: string, format: date }
+                expiry_date: { type: string, format: date }
+                line_items: { type: array, items: { $ref: '#/components/schemas/LineItemInput' } }
+                narrative: { type: string }
+      responses:
+        '200':
+          description: Amended
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Assessment'
+                  - type: object
+                    properties:
+                      overpayment_recognised_minor: { type: integer, format: int64 }
+                      refund_id: { type: [string, 'null'], format: uuid }
+        '409':
+          description: '`VERSION_CONFLICT` or `PERIOD_CLOSED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/agency/assessments/{psid}/cancel:
+    post:
+      tags: [Agency]
+      operationId: cancelAssessment
+      description: |
+        Permitted only while nothing has been allocated. **If any money has been
+        applied, the agency must issue a refund instead** — cancellation is not a
+        way to make money disappear. Enforced as a guard, not a convention.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: psid, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason_code]
+              properties:
+                reason_code: { type: string, enum: [ISSUED_IN_ERROR, DUPLICATE, WITHDRAWN, SUPERSEDED, COURT_ORDER] }
+                narrative: { type: string }
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Assessment' }
+        '409':
+          description: '`CANNOT_CANCEL_PAID_ASSESSMENT` — issue a refund instead.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/agency/assessments/bulk:
+    post:
+      tags: [Agency]
+      operationId: bulkCreateAssessments
+      description: File-based intake for agencies without a real-time API (SFTP-equivalent over HTTP).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, declared_row_count, declared_total_minor]
+              properties:
+                file: { type: string, format: binary }
+                declared_row_count: { type: integer }
+                declared_total_minor: { type: integer, format: int64 }
+      responses:
+        '202':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkBatch' }
+
+  /v1/agency/assessments/{psid}/status:
+    get:
+      tags: [Agency]
+      operationId: getServiceGateStatus
+      summary: Synchronous service-gate check
+      description: |
+        The endpoint an agency calls **before releasing a service, a container or
+        a stamped instrument**. Deliberately minimal and fast (p99 200 ms).
+        Provided alongside the `assessment.settled` webhook because an agency
+        releasing goods will always want to double-check (§18.3).
+      parameters:
+        - { name: psid, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Gate status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  psid: { type: string }
+                  status: { $ref: '#/components/schemas/AssessmentStatus' }
+                  balance_minor: { type: integer, format: int64 }
+                  finality: { type: string, enum: [PROVISIONAL, FINAL] }
+                  service_gate_open: { type: boolean }
+                  service_gate_token: { type: [string, 'null'] }
+                  gate_withheld_reason:
+                    type: [string, 'null']
+                    description: e.g. `AWAITING_INSTRUMENT_CLEARANCE`
+                  receipt_no: { type: [string, 'null'] }
+
+  /v1/agency/settlements:
+    get:
+      tags: [Settlement]
+      operationId: listSettlements
+      description: |
+        Settlement batches. Note that **confirmed**, **settled** and **swept**
+        are three different things and appear as three different figures (§13.1).
+      parameters:
+        - { name: business_date_from, in: query, schema: { type: string, format: date } }
+        - { name: business_date_to, in: query, schema: { type: string, format: date } }
+        - { name: status, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of settlement batches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SettlementBatch' } }
+                  next_cursor: { type: [string, 'null'] }
+
+  /v1/agency/settlements/{batchId}/scroll:
+    get:
+      tags: [Settlement]
+      operationId: getScroll
+      summary: Download the treasury scroll
+      description: |
+        Head-wise, allocation-granularity evidence file (§13.5). One line per
+        **allocation**, not per payment, because the treasury books by revenue
+        head and one payment may span several heads.
+
+        Control total is asserted against the ledger before the file is emitted;
+        a scroll that does not tie is never transmitted. Scrolls are immutable
+        once transmitted — corrections are supplementary scrolls.
+      parameters:
+        - { name: batchId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: format
+          in: query
+          schema: { type: string, enum: [FIXED_WIDTH, CSV, XML, JSON], default: FIXED_WIDTH }
+      responses:
+        '200':
+          description: Scroll file
+          content:
+            text/plain:
+              schema: { type: string }
+            application/json:
+              schema: { $ref: '#/components/schemas/Scroll' }
+
+  /v1/agency/statements:
+    get:
+      tags: [Agency]
+      operationId: getAgencyStatement
+      description: Period statement — opening, collections by head, refunds, fees, sweeps, closing.
+      parameters:
+        - { name: period, in: query, required: true, schema: { type: string, examples: ["2026-07"] } }
+      responses:
+        '200':
+          description: Statement
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgencyStatement' }
+
+  /v1/agency/refunds:
+    post:
+      tags: [Agency]
+      operationId: createRefund
+      summary: Initiate a refund
+      description: |
+        §14.1. **The beneficiary defaults to the original debit account.** Any
+        override requires an approved reason — this is the primary refund-fraud
+        vector in every payment platform.
+
+        `funding_source` distinguishes a refund the platform can make from funds
+        it still holds, from one the agency must fund because the money has
+        already been swept to the treasury.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRefundRequest' }
+      responses:
+        '201':
+          description: Refund created in PENDING_APPROVAL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+        '422':
+          description: '`REFUND_EXCEEDS_AVAILABLE`, `BENEFICIARY_OVERRIDE_NOT_APPROVED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ==========================================================================
+  # SWITCH / AGGREGATOR — the four-message biller contract
+  # ==========================================================================
+  /switch/v1/bill-inquiry:
+    post:
+      tags: [Switch]
+      operationId: switchBillInquiry
+      summary: 'Bill Inquiry (message 1 of 4)'
+      description: |
+        §4.2, §8.6. A **pure read**: sub-second, safe to retry, and it MUST NOT
+        create state that can block a later payment. p99 budget 300 ms.
+
+        The `response_reference` returned here MUST be echoed on the subsequent
+        Bill Payment. Every field the switch sends and expects echoed must be
+        echoed byte-identically, including trailing spaces — switch
+        certification fails on this more often than on logic.
+      security:
+        - oauth2ClientCredentials: [switch.biller]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchBillInquiryRequest' }
+      responses:
+        '200':
+          description: |
+            Always HTTP 200. The outcome is carried in `response_code`; the
+            switch cannot act on an HTTP error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwitchBillInquiryResponse' }
+              examples:
+                found:
+                  value:
+                    response_code: "00"
+                    response_reference: "RSP-20260730-0001982"
+                    consumer_number: "41000000000190124"
+                    biller_id: NEXUSCOLLECT
+                    consumer_name: "M****** A***d K***"
+                    bill_status: UNPAID
+                    amount_within_due_date_minor: 375000
+                    amount_after_due_date_minor: 500000
+                    due_date: "2026-08-06"
+                    billing_month: "202607"
+                    partial_payment_allowed: false
+                    minimum_payable_minor: 375000
+                    biller_message: "PSCA e-Challan - Over-speeding"
+                alreadyPaid:
+                  value:
+                    response_code: "94"
+                    response_reference: "RSP-20260730-0001983"
+                    consumer_number: "41000000001606293"
+                    bill_status: PAID
+                    paid_on: "2026-07-27"
+                    receipt_no: "PSCA20260727000004412"
+                    biller_message: "Already paid on 27-Jul-2026"
+
+  /switch/v1/bill-payment:
+    post:
+      tags: [Switch]
+      operationId: switchBillPayment
+      summary: 'Bill Payment (message 2 of 4)'
+      description: |
+        The money message. **Idempotent on the switch's own keys**
+        `(acquirer_id, stan, rrn, txn_date)` — not on a platform key, because the
+        switch will not send one.
+
+        The payment is committed inside a single database transaction **before**
+        the response is composed, so a late reversal always finds an original to
+        reverse.
+
+        `UNCERTAIN` is never returned to a switch. Either the payment is recorded
+        and this returns success, or nothing is recorded and it returns a
+        definite failure.
+      security:
+        - oauth2ClientCredentials: [switch.biller]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchBillPaymentRequest' }
+      responses:
+        '200':
+          description: Definite outcome in `response_code`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwitchBillPaymentResponse' }
+
+  /switch/v1/bill-payment-reversal:
+    post:
+      tags: [Switch]
+      operationId: switchBillPaymentReversal
+      summary: 'Bill Payment Reversal (message 3 of 4)'
+      description: |
+        MUST be safe against a **reversal without an original** — a frequent
+        condition when the original Bill Payment timed out on the switch side.
+        In that case the platform stores a `PENDING_REVERSAL` awaiting the late
+        original and auto-pairs on arrival (break code `B16`). This single
+        behaviour separates a serious biller integration from a naive one.
+      security:
+        - oauth2ClientCredentials: [switch.biller]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchReversalRequest' }
+      responses:
+        '200':
+          description: Reversal accepted, or held pending the late original
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response_code: { type: string }
+                  reversal_state: { type: string, enum: [REVERSED, PENDING_ORIGINAL, NOT_REVERSIBLE] }
+                  original_payment_reference: { type: [string, 'null'] }
+
+  /switch/v1/bill-payment-advice:
+    post:
+      tags: [Switch]
+      operationId: switchBillPaymentAdvice
+      summary: 'Bill Payment Advice (message 4 of 4)'
+      description: Late confirmation that resolves a payment the platform holds as `UNCERTAIN` (§9.4).
+      security:
+        - oauth2ClientCredentials: [switch.biller]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchAdviceRequest' }
+      responses:
+        '200':
+          description: Advice processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response_code: { type: string }
+                  resolved_status: { $ref: '#/components/schemas/PaymentStatus' }
+
+  # ==========================================================================
+  # RECONCILIATION
+  # ==========================================================================
+  /admin/v1/recon/runs:
+    post:
+      tags: [Reconciliation]
+      operationId: triggerReconRun
+      summary: Trigger a reconciliation run
+      description: |
+        §12. Ingestion refuses a file whose control record does not match what
+        was parsed, and refuses a file hash already ingested. A run is
+        reperformable and must produce identical results.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recon_type, business_date]
+              properties:
+                recon_type:
+                  type: string
+                  enum: [THREE_WAY_DAILY, RAIL_CYCLE, SWITCH_DAILY, BANK_STATEMENT,
+                         AGENCY_SUBLEDGER, TILL_CLOSE, SCROLL_ACK, INTRADAY]
+                business_date: { type: string, format: date }
+                agency_code: { type: string }
+                rail: { $ref: '#/components/schemas/Rail' }
+                source_file_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '202':
+          description: Run started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconRun' }
+        '422':
+          description: '`CONTROL_TOTAL_MISMATCH`, `DUPLICATE_FILE`, `SOURCE_FILE_MISSING`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /admin/v1/recon/runs/{runId}:
+    get:
+      tags: [Reconciliation]
+      operationId: getReconRun
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: |
+            Run with control totals and the headline `auto_match_rate_pct`
+            (target ≥ 99.5%).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconRun' }
+
+  /admin/v1/recon/runs/{runId}/breaks:
+    get:
+      tags: [Reconciliation]
+      operationId: listReconBreaks
+      description: |
+        Break register. Codes are `B01`–`B17` per §12.5. The demo dataset plants
+        exactly 11 breaks across 9 codes; see `demo-data/expected-results.json`.
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: break_code, in: query, schema: { type: string } }
+        - { name: severity, in: query, schema: { type: string, enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL] } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: age_days_min, in: query, schema: { type: integer } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of breaks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ReconBreak' } }
+                  summary:
+                    type: object
+                    properties:
+                      total_breaks: { type: integer }
+                      total_break_amount_minor: { type: integer, format: int64 }
+                      by_code: { type: object, additionalProperties: { type: integer } }
+                      by_age_bucket: { type: object, additionalProperties: { type: integer } }
+                  next_cursor: { type: [string, 'null'] }
+
+  /admin/v1/recon/breaks/{breakId}/propose:
+    post:
+      tags: [Reconciliation]
+      operationId: proposeBreakResolution
+      summary: 'Propose a resolution (MAKER)'
+      description: |
+        §12.8. Returns a **preview of the journal entry** that approval would
+        post, so the checker reviews the accounting rather than a description of
+        it. The proposer may not approve their own proposal.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: breakId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution_type, narrative]
+              properties:
+                resolution_type:
+                  type: string
+                  enum: [MATCHED_LATE, ALLOCATED, REVERSED, ADJUSTED, WRITTEN_OFF,
+                         RETURNED_TO_REMITTER, NO_ACTION_TIMING, PARTNER_CORRECTED]
+                narrative: { type: string, maxLength: 1000 }
+                allocations:
+                  type: array
+                  description: For `ALLOCATED` — where the unapplied money should go.
+                  items:
+                    type: object
+                    properties:
+                      psid: { type: string }
+                      amount_minor: { type: integer, format: int64 }
+                adjustment:
+                  type: object
+                  properties:
+                    debit_account_code: { type: string }
+                    credit_account_code: { type: string }
+                    amount_minor: { type: integer, format: int64 }
+                evidence_uris: { type: array, items: { type: string, format: uri } }
+      responses:
+        '200':
+          description: Proposal recorded, awaiting a checker
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  break_id: { type: string, format: uuid }
+                  approval_id: { type: string, format: uuid }
+                  status: { type: string, examples: [PENDING_APPROVAL] }
+                  journal_preview: { $ref: '#/components/schemas/JournalEntryPreview' }
+
+  /admin/v1/recon/breaks/{breakId}/approve:
+    post:
+      tags: [Reconciliation]
+      operationId: approveBreakResolution
+      summary: 'Approve or reject a resolution (CHECKER)'
+      description: |
+        Segregation of duty is enforced **in the database**
+        (`checker_user_id <> maker_user_id`), not only in the UI. Approval limits
+        apply by role. Nothing may be adjusted in a closed period.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: breakId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, approval_id]
+              properties:
+                approval_id: { type: string, format: uuid }
+                decision: { type: string, enum: [APPROVE, REJECT] }
+                comment: { type: string }
+      responses:
+        '200':
+          description: Decision applied; journal posted on approval
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconBreak' }
+        '403':
+          description: '`SEGREGATION_OF_DUTY_VIOLATION` or `APPROVAL_LIMIT_EXCEEDED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`PERIOD_CLOSED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /admin/v1/settlements/{batchId}/sweep:
+    post:
+      tags: [Settlement]
+      operationId: sweepToTreasury
+      summary: Instruct the sweep to the government treasury account
+      description: |
+        §13.4. **Never sweeps provisional credits** — an uncleared cheque swept
+        to a treasury account cannot practically be clawed back. Only payments
+        with `finality=FINAL` in a `SETTLED` cycle are eligible. Above a
+        threshold, two approvers are required.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - { name: batchId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approval_ids: { type: array, items: { type: string, format: uuid } }
+                value_date: { type: string, format: date }
+      responses:
+        '200':
+          description: Sweep instructed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SettlementBatch' }
+        '422':
+          description: '`PROVISIONAL_FUNDS_NOT_SWEEPABLE`, `CYCLE_NOT_SETTLED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /admin/v1/reports/{reportCode}:
+    get:
+      tags: [Reports]
+      operationId: runReport
+      description: |
+        Report codes `R01`–`R18` per §21.1. Requests likely to exceed 10,000 rows
+        return `202` with an export job; poll for a signed download URL.
+      parameters:
+        - name: reportCode
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [R01, R02, R03, R04, R05, R06, R07, R08, R09, R10,
+                   R11, R12, R13, R14, R15, R16, R17, R18]
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: agency_code, in: query, schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [JSON, CSV, XLSX, PDF], default: JSON } }
+      responses:
+        '200':
+          description: Report payload
+          content:
+            application/json: { schema: { type: object } }
+            text/csv: { schema: { type: string } }
+        '202':
+          description: Async export job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  export_job_id: { type: string, format: uuid }
+                  poll_url: { type: string, format: uri }
+
+  # ==========================================================================
+  # PUBLIC
+  # ==========================================================================
+  /public/v1/verify/{verifyCode}:
+    get:
+      tags: [Public]
+      operationId: verifyReceipt
+      summary: Third-party receipt verification
+      description: |
+        §16.2. Public, unauthenticated, rate-limited. Returns a deliberately
+        minimal, privacy-safe confirmation. **No PII beyond a masked name,
+        ever** — this endpoint is public and will be scraped.
+
+        Offline verification is also possible: the receipt QR carries the signed
+        JSON payload, so a verifier holding the public key can validate
+        authenticity with no network access at all.
+      security: []
+      parameters:
+        - { name: verifyCode, in: path, required: true, schema: { type: string, minLength: 8, maxLength: 8 } }
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  status: { type: string, enum: [VALID, VOIDED, REFUNDED, PARTIALLY_REFUNDED] }
+                  agency_name: { type: string }
+                  receipt_no: { type: string }
+                  amount_minor: { type: integer, format: int64 }
+                  currency: { type: string }
+                  paid_on: { type: string, format: date }
+                  payer_name_masked: { type: string }
+                  verified_at: { type: string, format: date-time }
+        '404': { description: Unknown verification code }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ==========================================================================
+  # INTERNAL CONTROLS
+  # ==========================================================================
+  /internal/control/trial-balance:
+    get:
+      tags: [Internal Controls]
+      operationId: controlTrialBalance
+      description: 'Assertion 1 of 5 (§10.8): `SUM(DR) = SUM(CR)` across all accounts.'
+      parameters:
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Trial balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ControlAssertion' }
+
+  /internal/control/allocation-integrity:
+    get:
+      tags: [Internal Controls]
+      operationId: controlAllocationIntegrity
+      description: |
+        Assertion 2 of 5: for **every** payment,
+        `Σ applied allocations + unapplied = gross`. The cheapest possible proof
+        that the platform is sound.
+      responses:
+        '200':
+          description: Result with any offending payment references
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ControlAssertion' }
+
+  /internal/control/balance-rebuild:
+    post:
+      tags: [Internal Controls]
+      operationId: controlBalanceRebuild
+      description: |
+        Assertion 3 of 5: recompute every assessment balance from allocations and
+        assert byte-identical equality with the cached value.
+      responses:
+        '200':
+          description: Rebuild result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ControlAssertion' }
+
+  /internal/control/ledger-vs-subledger:
+    get:
+      tags: [Internal Controls]
+      operationId: controlLedgerVsSubledger
+      description: 'Assertion 4 of 5: account `2010` per agency = Σ unswept allocations per agency.'
+      responses:
+        '200':
+          description: Comparison
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ControlAssertion' }
+
+  /internal/ledger/verify-chain:
+    get:
+      tags: [Internal Controls]
+      operationId: verifyLedgerHashChain
+      description: |
+        Assertion 5 of 5: walk the journal hash chain from genesis and report the
+        first break. Tamper with a row directly in the database and this names
+        the entry.
+      responses:
+        '200':
+          description: Chain verification
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ControlAssertion'
+                  - type: object
+                    properties:
+                      entries_verified: { type: integer }
+                      first_broken_entry_no: { type: [integer, 'null'] }
+
+# ============================================================================
+# WEBHOOKS
+# ============================================================================
+webhooks:
+  paymentConfirmed:
+    post:
+      summary: payment.confirmed
+      description: |
+        §18.2. Signed `X-Signature: t=<unix>,v1=<HMAC-SHA256(secret, t + "." + body)>`.
+        Retries at 0s, 30s, 2m, 10m, 1h, 6h, 24h, then dead-letter.
+
+        **Ordering is not guaranteed.** Every event carries a per-aggregate
+        `sequence` and a stable `event_id`; consumers must dedupe and tolerate
+        out-of-order delivery.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEnvelope' }
+      responses:
+        '2XX': { description: Acknowledged. Any non-2xx or a 5s timeout is retried. }
+
+  assessmentSettled:
+    post:
+      summary: assessment.settled
+      description: |
+        The event an agency gates service delivery on. Carries the
+        `service_gate_token` and, critically, `finality` — a provisional
+        settlement (uncleared cheque) must **not** release goods unless the
+        product's policy permits it.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEnvelope' }
+      responses:
+        '2XX': { description: Acknowledged }
+
+  instrumentReturned:
+    post:
+      summary: instrument.returned
+      description: |
+        A cheque bounced. The agency **must** withdraw any service released on
+        the strength of it. Payload enumerates every unsettled PSID and voided
+        receipt.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEnvelope' }
+      responses:
+        '2XX': { description: Acknowledged }
+
+  reconBreakOpened:
+    post:
+      summary: recon.break_opened
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEnvelope' }
+      responses:
+        '2XX': { description: Acknowledged }
+
+  controlAssertionFailed:
+    post:
+      summary: control.assertion_failed
+      description: |
+        One of the five §10.8 assertions failed. **Page immediately and freeze
+        sweeps** (runbook RB06). Do not post a plug entry to make the ledger
+        balance.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEnvelope' }
+      responses:
+        '2XX': { description: Acknowledged }
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+components:
+
+  securitySchemes:
+    oauth2ClientCredentials:
+      type: oauth2
+      description: |
+        Short-lived (15 min) tokens, scoped per surface and per institution.
+        **Always in addition to mutual TLS and a detached JWS**, never instead of
+        them.
+      flows:
+        clientCredentials:
+          tokenUrl: https://api.nexuscollect.example/oauth2/token
+          scopes:
+            resolve.read: Resolve references to payables
+            payments.write: Create intents, confirm and reverse payments
+            rtp.write: Create and manage Requests to Pay
+            assessments.write: Create, amend and cancel assessments
+            refunds.write: Initiate refunds
+            switch.biller: Aggregator four-message biller contract
+            admin.recon: Reconciliation operations
+            admin.settlement: Settlement and sweep operations
+            reports.read: Run reports
+    mutualTLS:
+      type: mutualTLS
+      description: Client certificate required on every server-to-server surface.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Client-generated, unique per logical operation (a UUIDv4 or ULID).
+        Replay returns the original status and body with
+        `X-Idempotent-Replay: true`. Same key with a different body ⇒
+        `422 IDEMPOTENCY_KEY_REUSED`. Retained 7 days. (§17.4)
+      schema: { type: string, minLength: 16, maxLength: 64 }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: UUIDv7. Echoed on the response and present on every log line, event and downstream call.
+      schema: { type: string, format: uuid }
+    InstitutionId:
+      name: X-Institution-Id
+      in: header
+      required: true
+      description: The calling institution. Also bounds what the caller may see.
+      schema: { type: string }
+    Timestamp:
+      name: X-Timestamp
+      in: header
+      required: false
+      description: RFC 3339. Must be within ±60s of server time (replay protection).
+      schema: { type: string, format: date-time }
+    Nonce:
+      name: X-Nonce
+      in: header
+      required: false
+      description: Single-use value; duplicates within the replay window are rejected.
+      schema: { type: string }
+    Signature:
+      name: X-Signature
+      in: header
+      required: false
+      description: |
+        Detached JWS over `(method, path, sha256(body), timestamp, nonce)`.
+        Protects against a compromised TLS terminator and provides
+        non-repudiation.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        Opaque cursor. **Offset pagination is not offered** on payment or ledger
+        collections — offsets skip and duplicate rows under concurrent inserts,
+        which in a financial report is a correctness bug.
+      schema: { type: string }
+
+  headers:
+    RateLimitRemaining:
+      description: Requests remaining in the current window
+      schema: { type: integer }
+    IdempotentReplay:
+      description: Present and `true` when this response was replayed from an idempotency record
+      schema: { type: boolean }
+
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    LimitExceeded:
+      description: |
+        `LIMIT_EXCEEDED`. The problem body names **which** limit and when it
+        resets — a client that cannot tell the payer "you can pay after
+        midnight" will simply retry in a loop.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  limit_scope: { type: string, enum: [PRODUCT, CHANNEL, PAYER, INSTITUTION, GLOBAL, TILL, AGENT] }
+                  limit_type: { type: string, enum: [PER_TXN_MAX, DAILY_MAX, DAILY_COUNT, MONTHLY_MAX] }
+                  limit_value_minor: { type: integer, format: int64 }
+                  resets_at: { type: string, format: date-time }
+    ChannelNotEligible:
+      description: '`CHANNEL_NOT_ELIGIBLE` — this payable cannot be paid through this channel.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    AgencyUnavailable:
+      description: |
+        `AGENCY_UNAVAILABLE`. The circuit breaker to the agency is open. Never
+        let an agency outage look like a platform outage to the payer, and never
+        guess an amount.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+
+    # ---------- shared ----------
+    MinorAmount:
+      type: integer
+      format: int64
+      minimum: 0
+      description: |
+        Money in integer minor units (paisa; 1 PKR = 100 paisa). **Never a
+        decimal.** Floating-point money is rejected at the schema boundary.
+      examples: [375000]
+
+    Currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      default: PKR
+      examples: [PKR]
+
+    Channel:
+      type: string
+      description: Where the payer stood. Distinct from `Rail`, which is how the money moved.
+      enum: [APP, QR, RTP, BILLER, ATM, IBANKING, OTC_CASH, CHEQUE, CARD, WALLET, AGENT, API, USSD, POS]
+
+    Rail:
+      type: string
+      description: The scheme that moved the money.
+      enum: [RAAST, IBFT_1LINK, PRISM_RTGS, PAYPAK, CARD_SCHEME, INTERNAL_BOOK, CASH, CHEQUE_CLEARING, WALLET]
+
+    ResolutionKeyType:
+      type: string
+      enum: [PSID, CRN, RF_REFERENCE, VEHICLE_REG, CNIC, NTN, STRN, CASE_NO,
+             APPLICATION_NO, GD_NO, PROPERTY_ID, INSTRUMENT_NO, TENDER_REF,
+             CHASSIS_NO, DL_NO, QR_PAYLOAD, RAAST_ID]
+
+    AssessmentStatus:
+      type: string
+      enum: [DRAFT, ISSUED, PARTIALLY_PAID, SETTLED, OVERDUE, EXPIRED,
+             CANCELLED, AMENDED, WRITTEN_OFF, CLOSED]
+
+    PaymentStatus:
+      type: string
+      description: |
+        `UNCERTAIN` is the most important state in the platform: the outcome of a
+        capture could not be determined. It is never shown to a payer as a
+        failure and is never returned to a switch (§9.4).
+      enum: [INITIATED, CONFIRMED, UNCERTAIN, FAILED, STUCK, REVERSED, PARTIALLY_REVERSED]
+
+    RtpStatus:
+      type: string
+      enum: [CREATED, SENT, DELIVERED, UNDELIVERABLE, PRESENTED, ACCEPTED,
+             ACCEPTED_FUTURE_DATED, ACCEPTED_PARTIAL, DECLINED, EXPIRED,
+             CANCELLED, FAILED, FULFILLED, FULFILLED_PARTIAL, FULFILLED_LATE]
+
+    LineType:
+      type: string
+      enum: [PRINCIPAL, SURCHARGE, PENALTY, INTEREST, FEE, TAX_ON_FEE, ROUNDING, ARREAR]
+
+    ErrorCode:
+      type: string
+      description: |
+        The complete platform error-code catalogue (§17.6 of the design document is an
+        extract of this list). Every `Problem.code` is one of these values.
+      enum:
+        - INVALID_REFERENCE_FORMAT
+        - INVALID_REFERENCE_CHECKSUM
+        - REFERENCE_NOT_FOUND
+        - MULTIPLE_PAYABLES
+        - PAYABLE_EXPIRED
+        - ALREADY_SETTLED
+        - PARTIAL_NOT_ALLOWED
+        - AMOUNT_BELOW_MINIMUM
+        - AMOUNT_ABOVE_MAXIMUM
+        - CHANNEL_NOT_ELIGIBLE
+        - LIMIT_EXCEEDED
+        - RESOLUTION_TOKEN_EXPIRED
+        - RESOLUTION_TOKEN_INVALID
+        - AMOUNT_CHANGED
+        - AUTHENTICATION_REQUIRED
+        - IDEMPOTENCY_KEY_REUSED
+        - REQUEST_IN_PROGRESS
+        - DUPLICATE_PAYMENT
+        - ALIAS_NOT_FOUND
+        - ALIAS_EXPIRED
+        - RTP_NOT_MODIFIABLE
+        - AGENCY_UNAVAILABLE
+        - PAYMENT_UNCERTAIN
+        - INSUFFICIENT_APPROVAL
+        - PERIOD_CLOSED
+        - QR_CRC_INVALID
+        - LINE_ITEMS_DO_NOT_SUM
+        - REVENUE_HEAD_INVALID_FOR_PERIOD
+        - PRODUCT_NOT_ACTIVE
+        - VERSION_CONFLICT
+        - CANNOT_CANCEL_PAID_ASSESSMENT
+        - INSTRUMENT_STALE
+        - POST_DATING_NOT_ALLOWED
+        - LINK_TOTAL_EXCEEDS_FACE_VALUE
+        - INSTRUMENT_NOT_ALLOWED_FOR_PRODUCT
+        - CONTROL_TOTAL_MISMATCH
+        - DUPLICATE_FILE
+        - SOURCE_FILE_MISSING
+        - REFUND_EXCEEDS_AVAILABLE
+        - BENEFICIARY_OVERRIDE_NOT_APPROVED
+        - SEGREGATION_OF_DUTY_VIOLATION
+        - APPROVAL_LIMIT_EXCEEDED
+        - PROVISIONAL_FUNDS_NOT_SWEEPABLE
+        - CYCLE_NOT_SETTLED
+
+    Problem:
+      type: object
+      description: |
+        RFC 9457 Problem Details plus four operational additions: a stable
+        machine `code`, a **payer-facing message the channel can display
+        verbatim** (so twenty banks do not each invent their own wording for the
+        same condition), its Urdu translation, and an explicit `retryable` flag
+        so clients never have to guess.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code:
+          allOf: [{ $ref: '#/components/schemas/ErrorCode' }]
+          description: Stable machine-readable error code. See `ErrorCode` for the full catalogue.
+        detail: { type: string }
+        instance: { type: string }
+        correlation_id: { type: string, format: uuid }
+        payer_message: { type: string }
+        payer_message_ur: { type: string }
+        retryable: { type: boolean }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              code: { type: string }
+              message: { type: string }
+
+    # ---------- resolution ----------
+    ResolveRequest:
+      type: object
+      required: [key_type, key_value, channel]
+      properties:
+        key_type: { $ref: '#/components/schemas/ResolutionKeyType' }
+        key_value: { type: string, maxLength: 512 }
+        channel: { $ref: '#/components/schemas/Channel' }
+        agency_code:
+          type: string
+          description: Disambiguates a legacy scheme collision (§7.3).
+        identity_assertion:
+          type: object
+          description: |
+            For identity-keyed lookups. Either the institution asserts it has
+            already authenticated this person (preferred — the bank has done the
+            identity work) or an OTP step-up token is supplied (§20.6).
+          properties:
+            asserted_by_institution: { type: boolean }
+            step_up_token: { type: string }
+        locale: { type: string, enum: [en, ur], default: en }
+
+    ResolveResponse:
+      type: object
+      properties:
+        resolution_token:
+          type: [string, 'null']
+          description: |
+            Signed JWT (5 min) binding the resolved amounts to the payable set.
+            **Required** on the subsequent intent. Closes the stale-amount replay
+            hole and records exactly what the payer was shown.
+        token_expires_at: { type: [string, 'null'], format: date-time }
+        payables:
+          type: array
+          items: { $ref: '#/components/schemas/Payable' }
+        settled:
+          type: array
+          description: |
+            Already-paid items matching the key, each with its receipt. Clients
+            MUST display these — it is the most effective duplicate-payment
+            prevention in the platform.
+          items:
+            type: object
+            properties:
+              psid: { type: string }
+              status: { type: string }
+              settled_on: { type: string, format: date }
+              receipt_no: { type: string }
+              code: { type: string, examples: [ALREADY_SETTLED] }
+
+    Payable:
+      type: object
+      description: The channel-facing projection of an assessment.
+      properties:
+        psid: { type: string }
+        rf_reference:
+          type: [string, 'null']
+          description: ISO 11649 creditor reference for rails with structured remittance (§7.4).
+        agency_code: { type: string }
+        agency_name: { type: string }
+        product_code: { type: string }
+        category: { type: string }
+        label: { type: string }
+        payable_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        min_payable_minor: { $ref: '#/components/schemas/MinorAmount' }
+        max_payable_minor: { $ref: '#/components/schemas/MinorAmount' }
+        surcharge_accrued_minor: { $ref: '#/components/schemas/MinorAmount' }
+        discount_applied_minor: { $ref: '#/components/schemas/MinorAmount' }
+        discount_expires_on:
+          type: [string, 'null']
+          format: date
+          description: After this date the discount lapses and the amount rises.
+        amount_valid_until:
+          type: [string, 'null']
+          format: date
+          description: Beyond this date the amount will differ because surcharge accrues.
+        currency: { $ref: '#/components/schemas/Currency' }
+        due_date: { type: string, format: date }
+        expires_at: { type: [string, 'null'], format: date-time }
+        status: { $ref: '#/components/schemas/AssessmentStatus' }
+        partial_allowed: { type: boolean }
+        overpayment_allowed: { type: boolean }
+        fee_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        tax_on_fee_minor: { $ref: '#/components/schemas/MinorAmount' }
+        fee_bearer: { type: string, enum: [PAYER, AGENCY, SPLIT] }
+        payer_name_masked: { type: [string, 'null'] }
+        service_gating: { type: string, enum: [NONE, BLOCKS_SERVICE, RELEASES_GOODS] }
+        head_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              revenue_head_code: { type: string }
+              line_type: { $ref: '#/components/schemas/LineType' }
+              tax_period: { type: [string, 'null'] }
+              amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+              balance_minor: { $ref: '#/components/schemas/MinorAmount' }
+
+    # ---------- intent & payment ----------
+    CreatePaymentIntentRequest:
+      type: object
+      required: [resolution_token, channel, requested_amount_minor, payables]
+      properties:
+        resolution_token: { type: string }
+        channel: { $ref: '#/components/schemas/Channel' }
+        requested_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        payables:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [psid]
+            properties:
+              psid: { type: string }
+              amount_minor:
+                allOf: [{ $ref: '#/components/schemas/MinorAmount' }]
+                description: Explicit allocation. Omit to let the product's waterfall decide (§11.3).
+        payer:
+          type: object
+          properties:
+            payer_id: { type: string }
+            msisdn_e164: { type: string }
+            email: { type: string, format: email }
+        third_party_payer:
+          type: object
+          description: |
+            Someone paying another party's obligation (§8.14). The obligation
+            stays attached to the original payer; tax credit accrues to the
+            taxpayer, not the remitter. Refunds go back to the **remitter**.
+          properties:
+            name: { type: string }
+            id_type: { type: string }
+            id_last4: { type: string }
+            relationship:
+              type: string
+              enum: [FAMILY, EMPLOYER, LEGAL_REPRESENTATIVE, CLEARING_AGENT, TAX_AGENT, OTHER]
+            contact_msisdn: { type: string }
+        return_url: { type: string, format: uri }
+
+    PaymentIntent:
+      type: object
+      properties:
+        intent_reference:
+          type: string
+          description: Quote this as ISO 20022 `EndToEndId` on the credit transfer.
+        status:
+          type: string
+          enum: [CREATED, AUTHORISED, CAPTURED, COMPLETED, COMPLETED_LATE, EXPIRED, ABANDONED, FAILED]
+        channel: { $ref: '#/components/schemas/Channel' }
+        requested_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        fee_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        tax_on_fee_minor: { $ref: '#/components/schemas/MinorAmount' }
+        total_debit_minor:
+          allOf: [{ $ref: '#/components/schemas/MinorAmount' }]
+          description: What the payer will actually be debited. **Must be shown before authorisation.**
+        currency: { $ref: '#/components/schemas/Currency' }
+        quote_expires_at: { type: string, format: date-time }
+        derived_rule_version:
+          type: string
+          description: Version of the surcharge/discount rules used, so the quote is reproducible forever.
+        payables: { type: array, items: { $ref: '#/components/schemas/Payable' } }
+        credit_instruction:
+          type: object
+          description: Where and how to send the funds.
+          properties:
+            beneficiary_iban: { type: string }
+            beneficiary_bic: { type: string }
+            beneficiary_name: { type: string }
+            end_to_end_id: { type: string }
+            structured_remittance: { type: string, description: ISO 11649 RF reference. }
+            unstructured_remittance: { type: string }
+        created_at: { type: string, format: date-time }
+
+    ConfirmPaymentRequest:
+      type: object
+      required: [channel, rail, gross_amount_minor]
+      properties:
+        intent_reference:
+          type: [string, 'null']
+          description: Omit for an unsolicited credit — the platform will parse the narrative (§11.6).
+        channel: { $ref: '#/components/schemas/Channel' }
+        rail: { $ref: '#/components/schemas/Rail' }
+        gross_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        rail_e2e_id: { type: string, maxLength: 35, description: ISO 20022 `EndToEndId`. Primary auto-match key. }
+        rail_txn_id: { type: string, maxLength: 35 }
+        rail_uetr: { type: string, format: uuid }
+        rail_instr_id: { type: string, maxLength: 35, description: Point-to-point only. Never match across hops on this. }
+        switch_stan: { type: string }
+        switch_rrn: { type: string }
+        acquirer_id: { type: string }
+        payer_bank_bic: { type: string }
+        payer_account_masked: { type: string }
+        remittance_raw:
+          type: string
+          description: |
+            The original, **unparsed** remittance text. Always send it. It is what
+            makes investigating a bad match possible.
+        value_date_hint: { type: string, format: date }
+        received_at: { type: string, format: date-time }
+
+    Payment:
+      type: object
+      properties:
+        payment_reference: { type: string }
+        intent_reference: { type: [string, 'null'] }
+        agency_code: { type: [string, 'null'], description: Null while unapplied — an unapplied receipt has no agency yet. }
+        channel: { $ref: '#/components/schemas/Channel' }
+        rail: { $ref: '#/components/schemas/Rail' }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        finality:
+          type: string
+          enum: [PROVISIONAL, FINAL]
+          description: Cheques are provisional until cleared. Provisional funds are never swept.
+        gross_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        fee_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        net_to_agency_minor: { $ref: '#/components/schemas/MinorAmount' }
+        unapplied_amount_minor:
+          allOf: [{ $ref: '#/components/schemas/MinorAmount' }]
+          description: '> 0 means money is stranded in the Unapplied Receipts liability account.'
+        currency: { $ref: '#/components/schemas/Currency' }
+        value_date:
+          type: string
+          format: date
+          description: Business date. Drives settlement and reconciliation.
+        obligation_discharge_date:
+          type: string
+          format: date
+          description: |
+            The date the payer's legal obligation was discharged. **Deliberately
+            distinct from `value_date`** — a statutory deadline is a date, not a
+            banking cut-off (§13.3).
+        cutoff_reason: { type: string, enum: [SAME_DAY, AFTER_CUTOFF, NON_BUSINESS_DAY] }
+        settlement_cycle: { type: [string, 'null'] }
+        settlement_status: { type: string, enum: [PENDING, SETTLED, SWEPT], description: The third of the three money states (§13.1). }
+        rail_e2e_id: { type: [string, 'null'] }
+        rail_uetr: { type: [string, 'null'] }
+        allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } }
+        settled_psids: { type: array, items: { type: string } }
+        still_open_psids:
+          type: array
+          items: { type: string }
+          description: |
+            Payables this payment touched but did not settle. **Clients MUST show
+            these to the payer** — a receipt saying only "PKR 18,500 received"
+            for three challans, one still open, produces a driver who thinks they
+            are clear when they are not (§11.5).
+        receipt: { $ref: '#/components/schemas/ReceiptSummary' }
+        duplicate_of: { type: [string, 'null'] }
+        application_trace:
+          type: object
+          description: |
+            Which pipeline step matched, on what key, with what confidence.
+            Answers "why did this money land on that bill?" in five seconds.
+          properties:
+            matched_on: { type: string }
+            match_confidence: { type: string, enum: [EXACT, HIGH, MEDIUM, LOW, VERY_LOW, NONE] }
+            waterfall_applied: { type: string }
+            candidates: { type: array, items: { type: object } }
+        received_at: { type: string, format: date-time }
+        confirmed_at: { type: [string, 'null'], format: date-time }
+
+    Allocation:
+      type: object
+      properties:
+        psid: { type: string }
+        line_item_seq: { type: integer }
+        line_type: { $ref: '#/components/schemas/LineType' }
+        revenue_head_code: { type: string }
+        tax_period: { type: [string, 'null'] }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        allocation_basis: { type: string, enum: [EXPLICIT, WATERFALL, MANUAL, SYSTEM_REALLOCATION] }
+        status: { type: string, enum: [APPLIED, REVERSED] }
+        reversal_reason: { type: [string, 'null'] }
+
+    ReceiptSummary:
+      type: object
+      properties:
+        receipt_no: { type: string }
+        verify_code: { type: string }
+        issued_at: { type: string, format: date-time }
+        provisional:
+          type: boolean
+          description: |
+            When true the receipt is visibly marked
+            `PROVISIONAL — subject to realisation of instrument`.
+        pdf_url: { type: [string, 'null'], format: uri }
+
+    Receipt:
+      allOf:
+        - $ref: '#/components/schemas/ReceiptSummary'
+        - type: object
+          properties:
+            status: { type: string, enum: [VALID, VOIDED, REFUNDED, PARTIALLY_REFUNDED] }
+            agency_name: { type: string }
+            payer_name: { type: string }
+            payer_id_masked: { type: string }
+            third_party_remitter: { type: [string, 'null'] }
+            amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+            amount_in_words: { type: string }
+            head_breakdown: { type: array, items: { $ref: '#/components/schemas/Allocation' } }
+            channel: { $ref: '#/components/schemas/Channel' }
+            rail: { $ref: '#/components/schemas/Rail' }
+            value_date: { type: string, format: date }
+            signature:
+              type: string
+              description: Detached signature over the canonical JSON. Verifiable offline from the receipt QR.
+            signed_payload_qr: { type: string }
+            template_version: { type: string }
+
+    # ---------- RtP ----------
+    CreateRtpRequest:
+      type: object
+      required: [psids, payer_alias_type, payer_alias_value, expires_at]
+      properties:
+        psids: { type: array, minItems: 1, items: { type: string } }
+        payer_alias_type: { type: string, enum: [MSISDN, EMAIL, NATIONAL_ID, IBAN, FREE_TEXT] }
+        payer_alias_value: { type: string }
+        amount_minor:
+          allOf: [{ $ref: '#/components/schemas/MinorAmount' }]
+          description: Defaults to the sum of the payables' live amounts.
+        amount_modifiable:
+          type: boolean
+          default: false
+          description: Whether the payer may accept for a different (partial) amount.
+        requested_execution_date:
+          type: [string, 'null']
+          format: date
+          description: Supports *accept now, pay later*.
+        expires_at: { type: string, format: date-time }
+        message_to_payer:
+          type: string
+          maxLength: 280
+          description: |
+            Carry rich context, not just an amount. The payer's bank app shows
+            this; "PKR 15,000 requested" with no explanation gets declined.
+        reminder_policy:
+          type: object
+          properties:
+            max: { type: integer, default: 2 }
+            interval_days: { type: integer, default: 7 }
+            respect_quiet_hours: { type: boolean, default: true }
+
+    RequestToPay:
+      type: object
+      properties:
+        rtp_reference: { type: string }
+        status: { $ref: '#/components/schemas/RtpStatus' }
+        agency_code: { type: string }
+        psids: { type: array, items: { type: string } }
+        payer_alias_type: { type: string }
+        payer_alias_value: { type: string }
+        resolved_payer_bank_bic: { type: [string, 'null'] }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        amount_modifiable: { type: boolean }
+        requested_execution_date: { type: [string, 'null'], format: date }
+        expires_at: { type: string, format: date-time }
+        decline_reason_code: { type: [string, 'null'] }
+        rail_msg_id: { type: [string, 'null'], description: '`pain.013` MsgId' }
+        rail_status_msg_id: { type: [string, 'null'], description: '`pain.014` MsgId' }
+        fulfilling_payment_reference: { type: [string, 'null'] }
+        reminder_count: { type: integer }
+        reminder_of_rtp_reference: { type: [string, 'null'] }
+        bulk_batch_id: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+
+    # ---------- instruments ----------
+    LodgeInstrumentRequest:
+      type: object
+      required: [instrument_type, amount_minor, links]
+      properties:
+        instrument_type:
+          type: string
+          enum: [CHEQUE, POST_DATED_CHEQUE, PAY_ORDER, DEMAND_DRAFT, BANKERS_CHEQUE, CASH]
+        instrument_number: { type: [string, 'null'] }
+        drawee_bank_bic: { type: [string, 'null'] }
+        drawee_branch_code: { type: [string, 'null'] }
+        drawer_name: { type: [string, 'null'] }
+        drawer_account_masked: { type: [string, 'null'] }
+        instrument_date: { type: [string, 'null'], format: date }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        lodged_at_branch: { type: [string, 'null'] }
+        teller_batch_id: { type: [string, 'null'] }
+        links:
+          type: array
+          minItems: 1
+          description: |
+            **The cheque-linking payload.** Σ link amounts must not exceed the
+            face value. One instrument may clear several assessments; when one of
+            three cheques bounces, only that cheque's allocations reverse (§8.8).
+          items:
+            type: object
+            required: [psid, amount_minor]
+            properties:
+              psid: { type: string }
+              amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        image_front_base64: { type: [string, 'null'] }
+        image_back_base64: { type: [string, 'null'] }
+
+    Instrument:
+      type: object
+      properties:
+        instrument_id: { type: string, format: uuid }
+        instrument_type: { type: string }
+        instrument_number: { type: [string, 'null'] }
+        drawee_bank_bic: { type: [string, 'null'] }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        status:
+          type: string
+          enum: [LODGED, PENDING_PRESENTMENT, HELD_POST_DATED, IN_CLEARING, CLEARED,
+                 RETURNED, REJECTED_AT_LODGEMENT, STOPPED, WRITTEN_OFF]
+        instrument_credit_policy:
+          type: string
+          enum: [ON_CLEARING, PROVISIONAL_ON_LODGEMENT, PROVISIONAL_WITH_GATE_HOLD]
+        provisional_credit_given: { type: boolean }
+        links: { type: array, items: { type: object } }
+        payment_reference: { type: [string, 'null'] }
+        instrument_date: { type: [string, 'null'], format: date }
+        presented_on: { type: [string, 'null'], format: date }
+        clears_on_expected: { type: [string, 'null'], format: date }
+        cleared_on: { type: [string, 'null'], format: date }
+        returned_on: { type: [string, 'null'], format: date }
+        return_reason_code: { type: [string, 'null'] }
+        re_presentment_count: { type: integer }
+        dishonour_charge_minor: { $ref: '#/components/schemas/MinorAmount' }
+
+    # ---------- assessments ----------
+    LineItemInput:
+      type: object
+      required: [seq, line_type, revenue_head_code, amount_minor]
+      properties:
+        seq: { type: integer }
+        line_type: { $ref: '#/components/schemas/LineType' }
+        revenue_head_code: { type: string }
+        tax_period:
+          type: [string, 'null']
+          description: Required for arrears — period-level granularity drives OLDEST_FIRST allocation.
+        description: { type: string }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        allocation_priority: { type: integer, default: 100 }
+
+    CreateAssessmentRequest:
+      type: object
+      required: [product_code, assessed_amount_minor, issue_date, due_date, line_items]
+      properties:
+        product_code: { type: string }
+        psid:
+          type: [string, 'null']
+          description: Supply only when the product's reference scheme is not platform-minted.
+        external_ref: { type: string, description: The agency's own key — challan no, case no, GD no. }
+        payer:
+          type: object
+          properties:
+            payer_id: { type: string }
+            payer_type: { type: string, enum: [INDIVIDUAL, SOLE_PROPRIETOR, AOP, COMPANY, GOVERNMENT, NON_RESIDENT] }
+            primary_id_type: { type: string, enum: [CNIC, NICOP, PASSPORT, NTN, STRN, FTN, INCORPORATION_NO] }
+            primary_id_value: { type: string }
+            name: { type: string }
+            msisdn_e164: { type: string }
+            email: { type: string, format: email }
+        payer_account_crn: { type: [string, 'null'], description: Durable consumer-number relationship. }
+        description: { type: string }
+        currency: { $ref: '#/components/schemas/Currency' }
+        assessed_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        issue_date: { type: string, format: date }
+        due_date: { type: string, format: date }
+        expiry_date: { type: [string, 'null'], format: date }
+        allow_partial_override: { type: [boolean, 'null'] }
+        line_items:
+          type: array
+          minItems: 1
+          description: '**Must sum to `assessed_amount_minor`.** Enforced; `422 LINE_ITEMS_DO_NOT_SUM` otherwise.'
+          items: { $ref: '#/components/schemas/LineItemInput' }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: |
+            Agency-specific searchable attributes — vehicle registration, case
+            number, GD number, tax year. Indexed into `resolution_index` so
+            secondary-key lookups meet the 300 ms budget (§7.5).
+        notify:
+          type: object
+          properties:
+            sms: { type: boolean, default: true }
+            email: { type: boolean, default: true }
+            issue_rtp_immediately: { type: boolean, default: false }
+
+    Assessment:
+      type: object
+      properties:
+        psid: { type: string }
+        rf_reference: { type: [string, 'null'] }
+        agency_code: { type: string }
+        product_code: { type: string }
+        external_ref: { type: [string, 'null'] }
+        description: { type: string }
+        payer_name_snapshot:
+          type: string
+          description: |
+            Immutable copy taken at issue. Receipts never join to live payer data
+            — the payer may since have been renamed.
+        payer_id_masked: { type: [string, 'null'] }
+        currency: { $ref: '#/components/schemas/Currency' }
+        assessed_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        surcharge_accrued_minor: { $ref: '#/components/schemas/MinorAmount' }
+        discount_applied_minor: { $ref: '#/components/schemas/MinorAmount' }
+        payable_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        allocated_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        balance_minor: { $ref: '#/components/schemas/MinorAmount' }
+        issue_date: { type: string, format: date }
+        due_date: { type: string, format: date }
+        expiry_date: { type: [string, 'null'], format: date }
+        status: { $ref: '#/components/schemas/AssessmentStatus' }
+        version: { type: integer }
+        supersedes_psid_version: { type: [integer, 'null'] }
+        service_gate_open: { type: boolean }
+        line_items:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/LineItemInput'
+              - type: object
+                properties:
+                  allocated_minor: { $ref: '#/components/schemas/MinorAmount' }
+                  balance_minor: { $ref: '#/components/schemas/MinorAmount' }
+        payments: { type: array, items: { $ref: '#/components/schemas/Payment' } }
+        metadata: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+
+    # ---------- bulk & mandates ----------
+    BulkValidationReport:
+      type: object
+      properties:
+        batch_id: { type: string }
+        file_hash: { type: string }
+        declared_row_count: { type: integer }
+        parsed_row_count: { type: integer }
+        declared_total_minor: { $ref: '#/components/schemas/MinorAmount' }
+        parsed_total_minor: { $ref: '#/components/schemas/MinorAmount' }
+        valid_row_count: { type: integer }
+        invalid_row_count: { type: integer }
+        overall: { type: string, enum: [READY_TO_CONFIRM, REJECTED] }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              row_no: { type: integer }
+              psid: { type: string }
+              amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+              outcome: { type: string, enum: [VALID, INVALID] }
+              error_code:
+                type: [string, 'null']
+                examples: [ALREADY_SETTLED, INVALID_REFERENCE_CHECKSUM, REFERENCE_NOT_FOUND,
+                           AMOUNT_MISMATCH, PAYABLE_EXPIRED]
+              message: { type: [string, 'null'] }
+
+    BulkBatch:
+      type: object
+      properties:
+        batch_id: { type: string }
+        batch_type: { type: string, enum: [BULK_PAYMENT, BULK_ASSESSMENT, BULK_RTP] }
+        status: { type: string, enum: [VALIDATING, READY, AWAITING_FUNDS, PROCESSING, COMPLETED, PARTIALLY_COMPLETED, REJECTED, STOPPED] }
+        row_count: { type: integer }
+        total_minor: { $ref: '#/components/schemas/MinorAmount' }
+        funding_reference:
+          type: [string, 'null']
+          description: Quote this on the single funding credit for the whole batch.
+        shortfall_policy: { type: string, enum: [REJECT_ALL, APPLY_PRO_RATA, APPLY_IN_ORDER_UNTIL_EXHAUSTED] }
+        succeeded: { type: integer }
+        failed: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    CreateMandateRequest:
+      type: object
+      required: [product_code, payer_alias_type, payer_alias_value, max_amount_minor, frequency, first_collection_date]
+      properties:
+        product_code: { type: string }
+        payer_account_crn: { type: [string, 'null'] }
+        payer_alias_type: { type: string, enum: [MSISDN, EMAIL, NATIONAL_ID, IBAN] }
+        payer_alias_value: { type: string }
+        max_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        frequency: { type: string, enum: [MONTHLY, QUARTERLY, HALF_YEARLY, ANNUAL, ON_DEMAND] }
+        first_collection_date: { type: string, format: date }
+        final_collection_date: { type: [string, 'null'], format: date }
+        pre_notification_days:
+          type: integer
+          default: 5
+          description: '**Mandatory.** A government direct debit that surprises a citizen is a complaint and a headline.'
+        retry_policy:
+          type: object
+          properties:
+            max: { type: integer, default: 2 }
+            interval_days: { type: integer, default: 3 }
+
+    Mandate:
+      type: object
+      properties:
+        mandate_id: { type: string, format: uuid }
+        scheme_mandate_ref: { type: [string, 'null'] }
+        status: { type: string, enum: [PENDING_AUTHORISATION, ACTIVE, SUSPENDED, CANCELLED, EXPIRED] }
+        product_code: { type: string }
+        max_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        frequency: { type: string }
+        next_collection_date: { type: [string, 'null'], format: date }
+        consecutive_failures: { type: integer }
+
+    # ---------- switch ----------
+    SwitchBillInquiryRequest:
+      type: object
+      required: [acquirer_id, stan, rrn, txn_date, consumer_number, biller_id]
+      properties:
+        acquirer_id: { type: string }
+        stan: { type: string }
+        rrn: { type: string }
+        txn_date: { type: string, format: date }
+        txn_time: { type: string }
+        terminal_id: { type: string }
+        channel: { type: string, enum: [ATM, MOBILE, INTERNET, OTC, AGENT, POS, USSD] }
+        consumer_number: { type: string }
+        biller_id: { type: string }
+        reserved_fields:
+          type: object
+          additionalProperties: true
+          description: Echoed back byte-identically, including trailing spaces.
+
+    SwitchBillInquiryResponse:
+      type: object
+      properties:
+        response_code:
+          type: string
+          description: |
+            Aggregator-specific code from a **configured** mapping table, not
+            hard-coded. `00` success; `94` already paid; `14` invalid consumer
+            number; `91` biller unavailable. Confirm the actual code list against
+            the aggregator's integration specification.
+        response_reference: { type: string, description: MUST be echoed on the subsequent Bill Payment. }
+        consumer_number: { type: string }
+        biller_id: { type: string }
+        consumer_name: { type: [string, 'null'] }
+        bill_status: { type: string, enum: [UNPAID, PARTIALLY_PAID, PAID, EXPIRED, BLOCKED] }
+        amount_within_due_date_minor: { $ref: '#/components/schemas/MinorAmount' }
+        amount_after_due_date_minor: { $ref: '#/components/schemas/MinorAmount' }
+        due_date: { type: [string, 'null'], format: date }
+        billing_month: { type: [string, 'null'] }
+        partial_payment_allowed: { type: boolean }
+        minimum_payable_minor: { $ref: '#/components/schemas/MinorAmount' }
+        paid_on: { type: [string, 'null'], format: date }
+        receipt_no: { type: [string, 'null'] }
+        biller_message: { type: string, maxLength: 100, description: Printable on an ATM slip. }
+        reserved_fields: { type: object, additionalProperties: true }
+
+    SwitchBillPaymentRequest:
+      allOf:
+        - $ref: '#/components/schemas/SwitchBillInquiryRequest'
+        - type: object
+          required: [transaction_amount_minor, response_reference]
+          properties:
+            transaction_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+            response_reference: { type: string }
+            tran_auth_id: { type: string }
+
+    SwitchBillPaymentResponse:
+      type: object
+      properties:
+        response_code: { type: string }
+        stan: { type: string }
+        rrn: { type: string }
+        payment_reference: { type: string }
+        receipt_no: { type: string, description: Printable on the ATM slip — the payer's proof. }
+        settled_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        remaining_balance_minor: { $ref: '#/components/schemas/MinorAmount' }
+        biller_message: { type: string, maxLength: 100 }
+        reserved_fields: { type: object, additionalProperties: true }
+
+    SwitchReversalRequest:
+      type: object
+      required: [acquirer_id, original_stan, original_rrn, txn_date, reversal_reason]
+      properties:
+        acquirer_id: { type: string }
+        original_stan: { type: string }
+        original_rrn: { type: string }
+        txn_date: { type: string, format: date }
+        transaction_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        reversal_reason: { type: string, enum: [TIMEOUT, CUSTOMER_CANCELLED, TECHNICAL, DUPLICATE, LATE_RESPONSE] }
+
+    SwitchAdviceRequest:
+      type: object
+      required: [acquirer_id, original_stan, original_rrn, txn_date, advice_outcome]
+      properties:
+        acquirer_id: { type: string }
+        original_stan: { type: string }
+        original_rrn: { type: string }
+        txn_date: { type: string, format: date }
+        advice_outcome: { type: string, enum: [CONFIRMED, FAILED] }
+        transaction_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+
+    # ---------- reconciliation ----------
+    ReconRun:
+      type: object
+      properties:
+        run_id: { type: string, format: uuid }
+        run_no: { type: integer }
+        recon_type: { type: string }
+        business_date: { type: string, format: date }
+        agency_code: { type: [string, 'null'] }
+        rail: { type: [string, 'null'] }
+        status: { type: string, enum: [PENDING, INGESTING, MATCHING, COMPLETE, FAILED] }
+        matched_count: { type: integer }
+        matched_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        break_count: { type: integer }
+        break_amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        auto_match_rate_pct: { type: number, description: 'The headline KPI. Target ≥ 99.5%.' }
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string, enum: [PLATFORM, RAIL, SWITCH, BANK_STATEMENT, AGENCY_SUBLEDGER, TREASURY_ACK, CHANNEL_PARTNER, TILL] }
+              filename: { type: [string, 'null'] }
+              file_hash: { type: [string, 'null'] }
+              declared_count: { type: [integer, 'null'] }
+              parsed_count: { type: integer }
+              declared_total_minor: { type: [integer, 'null'], format: int64 }
+              parsed_total_minor: { $ref: '#/components/schemas/MinorAmount' }
+              control_total_ok: { type: boolean }
+        supersedes_run_id: { type: [string, 'null'], format: uuid }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+
+    ReconBreak:
+      type: object
+      properties:
+        break_id: { type: string, format: uuid }
+        break_code:
+          type: string
+          description: '`B01`–`B17` per §12.5.'
+          enum: [B01, B02, B03, B04, B05, B06, B07, B08, B09, B10, B11, B12, B13, B14, B15, B16, B17]
+        break_type: { type: string }
+        severity: { type: string, enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL] }
+        amount_minor: { type: integer, format: int64, description: Signed — the unexplained difference. }
+        currency: { $ref: '#/components/schemas/Currency' }
+        business_date: { type: string, format: date }
+        agency_code: { type: [string, 'null'] }
+        rail: { type: [string, 'null'] }
+        payment_reference: { type: [string, 'null'] }
+        psid: { type: [string, 'null'] }
+        narrative_raw: { type: [string, 'null'], description: The raw source line. Investigators live here. }
+        suggested_resolution:
+          type: object
+          description: The engine's own analysis, with a confidence score.
+          properties:
+            resolution_type: { type: string }
+            confidence: { type: number }
+            rationale: { type: string }
+            candidate_psids: { type: array, items: { type: string } }
+        status: { type: string, enum: [OPEN, INVESTIGATING, PENDING_APPROVAL, ESCALATED, RESOLVED, AUTO_RESOLVED, WRITTEN_OFF] }
+        age_days: { type: integer }
+        age_bucket: { type: string, enum: [CURRENT, AGEING, OVERDUE, ESCALATED, CRITICAL, LEGACY] }
+        assigned_to: { type: [string, 'null'] }
+        sla_due_at: { type: [string, 'null'], format: date-time }
+        resolution_type: { type: [string, 'null'] }
+        resolved_at: { type: [string, 'null'], format: date-time }
+        resolution_note: { type: [string, 'null'] }
+
+    JournalEntryPreview:
+      type: object
+      description: Exactly what approval would post, so the checker reviews the accounting itself.
+      properties:
+        event_type: { type: string }
+        value_date: { type: string, format: date }
+        narrative: { type: string }
+        balanced: { type: boolean }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              account_code: { type: string }
+              account_name: { type: string }
+              direction: { type: string, enum: [DR, CR] }
+              amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+              revenue_head_code: { type: [string, 'null'] }
+
+    # ---------- settlement ----------
+    SettlementBatch:
+      type: object
+      properties:
+        batch_id: { type: string, format: uuid }
+        agency_code: { type: string }
+        rail: { $ref: '#/components/schemas/Rail' }
+        business_date: { type: string, format: date }
+        cycle_id: { type: [string, 'null'] }
+        status: { type: string, enum: [OPEN, PENDING_NETTING, NETTED, INSTRUCTED, SETTLED, SETTLEMENT_FAILED, RECONCILED, CLOSED] }
+        transaction_count: { type: integer }
+        gross_minor: { $ref: '#/components/schemas/MinorAmount' }
+        fees_minor: { $ref: '#/components/schemas/MinorAmount' }
+        provisional_excluded_minor:
+          allOf: [{ $ref: '#/components/schemas/MinorAmount' }]
+          description: Uncleared instruments deliberately held back from the sweep.
+        net_minor: { $ref: '#/components/schemas/MinorAmount' }
+        treasury_instruction_ref: { type: [string, 'null'] }
+        scroll_id: { type: [string, 'null'] }
+        scroll_ack_status: { type: [string, 'null'], enum: [PENDING, ACCEPTED, PARTIALLY_REJECTED, REJECTED, null] }
+        settled_at: { type: [string, 'null'], format: date-time }
+        swept_at: { type: [string, 'null'], format: date-time }
+
+    Scroll:
+      type: object
+      properties:
+        scroll_id: { type: string }
+        agency_code: { type: string }
+        business_date: { type: string, format: date }
+        format_version: { type: string }
+        line_count: { type: integer }
+        control_total_minor: { $ref: '#/components/schemas/MinorAmount' }
+        detail_sha256: { type: string }
+        signature: { type: string }
+        head_totals: { type: object, additionalProperties: { type: integer, format: int64 } }
+        lines:
+          type: array
+          description: One line per **allocation**, because the treasury books by revenue head.
+          items:
+            type: object
+            properties:
+              line_no: { type: integer }
+              revenue_head_code: { type: string }
+              psid: { type: string }
+              payer_name: { type: string }
+              payer_id_masked: { type: string }
+              tax_period: { type: [string, 'null'] }
+              amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+              payment_reference: { type: string }
+              receipt_no: { type: string }
+              channel: { type: string }
+              rail: { type: string }
+              value_date: { type: string, format: date }
+              instrument_type: { type: [string, 'null'] }
+              ack_status: { type: string, enum: [PENDING, ACCEPTED, REJECTED] }
+              ack_reason: { type: [string, 'null'] }
+
+    AgencyStatement:
+      type: object
+      properties:
+        agency_code: { type: string }
+        period: { type: string }
+        opening_balance_minor: { $ref: '#/components/schemas/MinorAmount' }
+        collections_minor: { $ref: '#/components/schemas/MinorAmount' }
+        collections_by_head: { type: object, additionalProperties: { type: integer, format: int64 } }
+        refunds_minor: { $ref: '#/components/schemas/MinorAmount' }
+        reversals_minor: { $ref: '#/components/schemas/MinorAmount' }
+        chargebacks_minor: { $ref: '#/components/schemas/MinorAmount' }
+        fees_deducted_minor: { $ref: '#/components/schemas/MinorAmount' }
+        swept_minor: { $ref: '#/components/schemas/MinorAmount' }
+        provisional_held_minor: { $ref: '#/components/schemas/MinorAmount' }
+        unapplied_minor: { $ref: '#/components/schemas/MinorAmount' }
+        closing_balance_minor: { $ref: '#/components/schemas/MinorAmount' }
+        open_break_count: { type: integer }
+        signed_off_by: { type: [string, 'null'] }
+        signed_off_at: { type: [string, 'null'], format: date-time }
+
+    CreateRefundRequest:
+      type: object
+      required: [payment_reference, amount_minor, reason_code]
+      properties:
+        payment_reference: { type: string }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        reason_code:
+          type: string
+          enum: [OVERPAYMENT, DUPLICATE_PAYMENT, SERVICE_CANCELLED, ASSESSMENT_AMENDED,
+                 ERRONEOUS_PAYMENT, DEPOSIT_RELEASE, COURT_ORDER, APPEAL_ALLOWED]
+        funding_source: { type: string, enum: [PLATFORM_HELD, AGENCY_FUNDED] }
+        surplus_only:
+          type: boolean
+          default: false
+          description: |
+            When true, allocations are left untouched and only unallocated
+            surplus is returned. When false, allocations are reversed and the
+            assessment balance is restored. Two distinct paths.
+        beneficiary_override:
+          type: object
+          description: |
+            Omit to refund to the original debit account (the default and the
+            safe choice). Supplying this requires an approved reason — it is the
+            primary refund-fraud vector.
+          properties:
+            iban: { type: string }
+            bic: { type: string }
+            account_name: { type: string }
+            justification: { type: string }
+            approval_id: { type: string, format: uuid }
+        narrative: { type: string }
+
+    Refund:
+      type: object
+      properties:
+        refund_id: { type: string, format: uuid }
+        payment_reference: { type: string }
+        amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+        reason_code: { type: string }
+        funding_source: { type: string }
+        status: { type: string, enum: [REQUESTED, PENDING_APPROVAL, APPROVED, REJECTED, PROCESSING, COMPLETED, RETURNED, FAILED, PENDING_DETAILS, CANCELLED] }
+        beneficiary_masked: { type: string }
+        approval_id: { type: [string, 'null'], format: uuid }
+        outbound_payment_reference: { type: [string, 'null'] }
+        expected_completion_date: { type: [string, 'null'], format: date }
+
+    ControlAssertion:
+      type: object
+      description: One of the five §10.8 reperformance assertions.
+      properties:
+        assertion: { type: string }
+        passed: { type: boolean }
+        as_of: { type: string, format: date-time }
+        expected_minor: { type: [integer, 'null'], format: int64 }
+        actual_minor: { type: [integer, 'null'], format: int64 }
+        variance_minor: { type: [integer, 'null'], format: int64 }
+        offending_records:
+          type: array
+          items:
+            type: object
+            properties:
+              entity_type: { type: string }
+              reference: { type: string }
+              detail: { type: string }
+
+    WebhookEnvelope:
+      type: object
+      required: [event_id, event_type, aggregate_type, aggregate_id, sequence, occurred_at, data]
+      properties:
+        event_id: { type: string, format: uuid, description: Stable. Use it to dedupe — delivery is at-least-once. }
+        event_type: { type: string, examples: [payment.confirmed] }
+        aggregate_type: { type: string, examples: [payment] }
+        aggregate_id: { type: string }
+        sequence:
+          type: integer
+          description: Per-aggregate. **Ordering across events is not guaranteed**; use this to order.
+        occurred_at: { type: string, format: date-time }
+        correlation_id: { type: string, format: uuid }
+        agency_code: { type: [string, 'null'] }
+        api_version: { type: string, examples: ['1.0.0'] }
+        data: { type: object, additionalProperties: true }

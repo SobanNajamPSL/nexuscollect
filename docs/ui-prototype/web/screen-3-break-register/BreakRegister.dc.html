@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/tokens/fonts.css">
+  <link rel="stylesheet" href="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/tokens/colors.css">
+  <link rel="stylesheet" href="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/tokens/typography.css">
+  <link rel="stylesheet" href="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/tokens/spacing.css">
+  <link rel="stylesheet" href="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/tokens/effects.css">
+  <link rel="stylesheet" href="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/styles.css">
+  <script src="../../_ds/paysys-labs-design-system-fef8681b-e89a-4a71-aa58-317497a8bbe3/_ds_bundle.js"></script>
+  <script src="../shared/nexus-shared.js"></script>
+  <style>
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--color-bg-subtle);}
+    a{color:var(--color-link);}
+    a:hover{color:var(--color-link-hover);}
+    table{border-collapse:collapse;width:100%;}
+    .brk-th{text-align:left;padding:10px 14px;font:var(--weight-semibold) var(--fs-caption)/1 var(--font-body);text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--color-text-muted);border-bottom:var(--border-md) solid var(--color-border-strong);white-space:nowrap;}
+    .brk-td{text-align:left;padding:12px 14px;font:var(--fs-body-sm)/1.4 var(--font-body);color:var(--color-text-primary);border-bottom:var(--border-thin) solid var(--color-border);vertical-align:top;}
+    textarea{font:var(--fs-body-sm)/1.5 var(--font-body);border:var(--border-thin) solid var(--color-border-strong);border-radius:var(--radius-md);padding:10px 12px;width:100%;resize:vertical;}
+    textarea:focus{outline:none;box-shadow:var(--shadow-focus);border-color:var(--blue-500);}
+  </style>
+</helmet>
+<div style="min-height:100vh;font-family:var(--font-body);color:var(--color-text-primary);">
+  <header style="background:var(--color-surface);border-bottom:var(--border-thin) solid var(--color-border);padding:16px clamp(16px,4vw,32px);">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:baseline;gap:16px;">
+        <span style="font:var(--weight-bold) var(--fs-h3)/1 var(--font-display);color:var(--color-brand-primary);">NexusCollect</span>
+        <span style="width:1px;height:24px;background:var(--color-border-strong);display:inline-block;"></span>
+        <div>
+          <h1 style="margin:0;font:var(--weight-semibold) var(--fs-h2)/var(--lh-h2) var(--font-display);">Break Register</h1>
+          <p style="margin:2px 0 0;font:var(--fs-body-sm)/var(--lh-body-sm) var(--font-body);color:var(--color-text-muted);">2026-07-30 close · {{ breakCount }} breaks · {{ totalUnexplainedFmt }} unexplained</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;background:var(--slate-50);border:var(--border-thin) solid var(--color-border);border-radius:var(--radius-md);padding:6px;">
+        <span style="font:var(--fs-caption)/1 var(--font-body);color:var(--color-text-muted);padding:0 6px;">Acting as</span>
+        <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="{{ analystVariant }}" size="sm" onClick="{{ onActAsAnalyst }}" hint-size="auto,32px">Analyst — A. Rizvi</x-import>
+        <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="{{ approverVariant }}" size="sm" onClick="{{ onActAsApprover }}" hint-size="auto,32px">Approver — S. Malik</x-import>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width:1280px;margin:0 auto;padding:20px clamp(16px,4vw,32px) 64px;">
+    <div style="margin-bottom:16px;">
+      <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Alert" tone="info" hint-size="100%,auto">Maker-checker is enforced: proposals and approvals must come from different accounts. Switch "Acting as" above to see both sides of the workflow.</x-import>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+        <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="{{ f.variant }}" size="sm" onClick="{{ f.onClick }}" hint-size="auto,32px">{{ f.label }}</x-import>
+      </sc-for>
+    </div>
+
+    <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Card" padded="{{ false }}" hint-size="100%,auto">
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th class="brk-th">Break</th>
+              <th class="brk-th">Type</th>
+              <th class="brk-th">Amount</th>
+              <th class="brk-th">Age / SLA</th>
+              <th class="brk-th">Status</th>
+              <th class="brk-th"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ visibleBreaks }}" as="b" hint-placeholder-count="6">
+              <tr style="{{ b.rowStyle }}">
+                <td class="brk-td" style="font-family:var(--font-mono);white-space:nowrap;">{{ b.id }}<div style="font:var(--fs-caption)/1.3 var(--font-mono);color:var(--color-text-muted);">{{ b.code }}</div></td>
+                <td class="brk-td">
+                  <div style="font-weight:var(--weight-medium);">{{ b.type }}</div>
+                  <div style="font:var(--fs-caption)/1.3 var(--font-body);color:var(--color-text-muted);">{{ b.category }}<sc-if value="{{ b.subtype }}" hint-placeholder-val="{{ false }}"> — {{ b.subtype }}</sc-if></div>
+                </td>
+                <td class="brk-td" style="font-variant-numeric:tabular-nums;white-space:nowrap;">{{ b.amountFmt }}</td>
+                <td class="brk-td" style="white-space:nowrap;">
+                  <sc-if value="{{ b.showAge }}" hint-placeholder-val="{{ true }}">
+                    <span style="{{ b.ageStyle }}">{{ b.ageLabel }}</span>
+                  </sc-if>
+                  <sc-if value="{{ !b.showAge }}" hint-placeholder-val="{{ false }}">
+                    <span style="color:var(--color-text-muted);">—</span>
+                  </sc-if>
+                </td>
+                <td class="brk-td">
+                  <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Badge" tone="{{ b.statusTone }}" hint-size="auto,24px">{{ b.statusLabel }}</x-import>
+                </td>
+                <td class="brk-td" style="text-align:right;white-space:nowrap;">
+                  <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="outline" size="sm" onClick="{{ b.onOpen }}" hint-size="auto,32px">View</x-import>
+                </td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </x-import>
+  </main>
+
+  <sc-if value="{{ hasSelected }}" hint-placeholder-val="{{ false }}">
+    <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Dialog" open="{{ hasSelected }}" onClose="{{ onCloseDialog }}" title="{{ selected.id }} — {{ selected.type }}" size="md" hint-size="100%,100%">
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+          <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Badge" tone="{{ selected.statusTone }}" hint-size="auto,24px">{{ selected.statusLabel }}</x-import>
+          <span style="font:var(--weight-bold) var(--fs-h3)/1 var(--font-display);font-variant-numeric:tabular-nums;">{{ selected.amountFmt }}</span>
+        </div>
+        <p style="margin:0 0 14px;font:var(--fs-body-sm)/1.5 var(--font-body);color:var(--color-text-secondary);">{{ selected.detail }}</p>
+
+        <sc-if value="{{ selected.showAgeDetail }}" hint-placeholder-val="{{ false }}">
+          <p style="margin:0 0 14px;font:var(--fs-caption)/1.4 var(--font-body);"><span style="{{ selected.ageStyle }}">{{ selected.ageLabel }}</span></p>
+        </sc-if>
+
+        <sc-if value="{{ selected.isAutoResolved }}" hint-placeholder-val="{{ false }}">
+          <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Alert" tone="success" title="Resolved automatically" hint-size="100%,auto">{{ selected.resolutionNote }}</x-import>
+        </sc-if>
+
+        <sc-if value="{{ selected.isResolved }}" hint-placeholder-val="{{ false }}">
+          <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Alert" tone="success" title="{{ selected.resolvedTitle }}" hint-size="100%,auto">{{ selected.resolutionNote }}</x-import>
+        </sc-if>
+
+        <sc-if value="{{ selected.hasProposal }}" hint-placeholder-val="{{ false }}">
+          <div style="background:var(--blue-50);border:var(--border-thin) solid var(--blue-100);border-radius:var(--radius-md);padding:12px 14px;margin-bottom:14px;">
+            <div style="font:var(--weight-semibold) var(--fs-caption)/1 var(--font-body);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:var(--tracking-wide);margin-bottom:4px;">Proposed by {{ selected.proposedBy }}</div>
+            <p style="margin:0;font:var(--fs-body-sm)/1.5 var(--font-body);">{{ selected.proposal }}</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ selected.showAnalystForm }}" hint-placeholder-val="{{ false }}">
+          <div style="border-top:var(--border-thin) solid var(--color-border);padding-top:14px;">
+            <div style="font:var(--weight-semibold) var(--fs-body-sm)/1 var(--font-body);margin-bottom:10px;">Propose a resolution</div>
+            <div style="margin-bottom:10px;">
+              <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Select" label="Resolution type" options="{{ resolutionTypeOptions }}" value="{{ proposalType }}" onChange="{{ onProposalTypeChange }}" hint-size="100%,64px"></x-import>
+            </div>
+            <label style="display:block;font:var(--fs-caption)/1.3 var(--font-body);color:var(--color-text-muted);margin-bottom:4px;">Notes for the approver</label>
+            <textarea rows="3" value="{{ proposalNote }}" onChange="{{ onProposalNoteChange }}" placeholder="Explain the match or proposed treatment..."></textarea>
+            <div style="margin-top:12px;text-align:right;">
+              <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="primary" onClick="{{ onSubmitProposal }}" loading="{{ submitting }}" disabled="{{ submitDisabled }}" hint-size="auto,44px">Submit proposal</x-import>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ selected.showApproverActions }}" hint-placeholder-val="{{ false }}">
+          <div style="border-top:var(--border-thin) solid var(--color-border);padding-top:14px;">
+            <label style="display:block;font:var(--fs-caption)/1.3 var(--font-body);color:var(--color-text-muted);margin-bottom:4px;">Rejection reason (only needed if rejecting)</label>
+            <textarea rows="2" value="{{ rejectReason }}" onChange="{{ onRejectReasonChange }}" placeholder="Optional — why this proposal doesn't resolve the break"></textarea>
+            <div style="margin-top:12px;display:flex;gap:10px;justify-content:flex-end;">
+              <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="outline" onClick="{{ onReject }}" loading="{{ submitting }}" disabled="{{ submitDisabled }}" hint-size="auto,44px">Reject</x-import>
+              <x-import component-from-global-scope="PaysysLabsDesignSystem_fef868.Button" variant="primary" onClick="{{ onApprove }}" loading="{{ submitting }}" disabled="{{ submitDisabled }}" hint-size="auto,44px">Approve</x-import>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ selected.showWaitingNote }}" hint-placeholder-val="{{ false }}">
+          <p style="margin:0;font:var(--fs-body-sm)/1.4 var(--font-body);color:var(--color-text-muted);font-style:italic;">Awaiting approval from S. Malik (Approver). As the proposing analyst, you cannot approve your own proposal.</p>
+        </sc-if>
+        <sc-if value="{{ selected.showNoProposalNote }}" hint-placeholder-val="{{ false }}">
+          <p style="margin:0;font:var(--fs-body-sm)/1.4 var(--font-body);color:var(--color-text-muted);font-style:italic;">No proposal yet — switch to Analyst to propose a resolution before this can be approved.</p>
+        </sc-if>
+      </div>
+    </x-import>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000}}">
+const BREAKS = [
+  { id: 'BRK-001', code: 'B01', type: 'Unmatched Bank Credit', subtype: 'Narrative-resolvable', category: 'Cash variance', amount: 4750000, autoResolvable: false, status: 'OPEN', ageDays: 1, sla: 5, detail: 'Bank statement shows an unmatched credit of PKR 47,500.00 on the NexusCollect collection account, value date 29 Jul 2026. Narrative text: "IBFT CR REF PSCA-CHALLAN LEA17***" — partial reference, likely a challan payment for vehicle series LEA-17.', proposedBy: null, proposal: null, resolutionNote: null },
+  { id: 'BRK-002', code: 'B01', type: 'Unmatched Bank Credit', subtype: 'Unresolvable', category: 'Cash variance', amount: 12500000, autoResolvable: false, status: 'OPEN', ageDays: 3, sla: 5, detail: 'Bank statement shows an unmatched credit of PKR 125,000.00, value date 27 Jul 2026. Narrative text is blank (branch deposit, no reference captured). No candidate match found by automated or narrative search.', proposedBy: null, proposal: null, resolutionNote: null },
+  { id: 'BRK-003', code: 'B02', type: 'Unmatched Platform Payment', subtype: null, category: 'Cash variance', amount: 44755200, autoResolvable: false, status: 'PENDING_APPROVAL', ageDays: 2, sla: 5, detail: 'A settled platform payment of PKR 447,552.00 has no corresponding bank credit in the same value-date window.', proposedBy: 'A. Rizvi', proposal: 'Matches PSID 12010400002413680 — Gulberg Software House (Pvt) Ltd, Sales Tax on Goods (Domestic), settled with an identical amount. The bank credit appears to have settled one business day later than the platform posting. Propose: match and close as a timing variance, no cash impact.', resolutionNote: null },
+  { id: 'BRK-004', code: 'B03', type: 'Amount Mismatch', subtype: 'Fee deducted at source', category: 'Cash variance', amount: 5000, autoResolvable: false, status: 'RESOLVED', ageDays: 1, sla: 5, detail: 'Bank credit is PKR 50.00 short of the expected platform amount.', proposedBy: 'A. Rizvi', proposal: 'Correspondent bank deducted a PKR 50.00 wire fee before crediting the collection account.', resolutionNote: 'Approved by S. Malik — booked as a bank charge expense, not a collection shortfall. No agency impact.' },
+  { id: 'BRK-005', code: 'B04', type: 'Duplicate Switch-File Row', subtype: null, category: 'Duplicate', amount: 12034000, autoResolvable: true, status: 'AUTO_RESOLVED', ageDays: 0, sla: 5, detail: 'The daily switch file contained the same settlement row twice (identical row hash).', proposedBy: null, proposal: null, resolutionNote: 'Second occurrence suppressed automatically at intake — no double posting occurred. No action required.' },
+  { id: 'BRK-006', code: 'B05', type: 'Timing Difference', subtype: null, category: 'Timing', amount: 350000, autoResolvable: true, status: 'AUTO_RESOLVED', ageDays: 0, sla: 5, detail: 'Platform posting and bank credit fall either side of the daily cut-off.', proposedBy: null, proposal: null, resolutionNote: 'Matched automatically to the next settlement cycle — crossed the 18:00 cut-off by 6 minutes. No action required.' },
+  { id: 'BRK-007', code: 'B05', type: 'Timing Difference', subtype: null, category: 'Timing', amount: 300000, autoResolvable: true, status: 'AUTO_RESOLVED', ageDays: 0, sla: 5, detail: 'Platform posting and bank credit fall either side of the daily cut-off.', proposedBy: null, proposal: null, resolutionNote: 'Matched automatically to the next settlement cycle. No action required.' },
+  { id: 'BRK-008', code: 'B06', type: 'Unapplied Receipt', subtype: 'Aged 14 days', category: 'Unapplied receipt', amount: 12500000, autoResolvable: false, status: 'OPEN', ageDays: 14, sla: 5, detail: 'A receipt for PKR 125,000.00 was issued but could not be linked to any assessment — the payer reference on the inbound file could not be parsed at intake.', proposedBy: null, proposal: null, resolutionNote: null },
+  { id: 'BRK-009', code: 'B07', type: 'Fee Variance', subtype: 'vs contracted rate', category: 'Fee variance', amount: 750, autoResolvable: false, status: 'PENDING_APPROVAL', ageDays: 5, sla: 10, detail: 'Acquirer-deducted fee on one transaction is PKR 7.50 higher than the contracted rate.', proposedBy: 'A. Rizvi', proposal: 'Acquirer applied 1.85% instead of the contracted 1.80% on a single card-acquiring transaction. Propose: raise a fee-variance query with the acquirer; adjust internally as an acquirer cost, not an agency shortfall.', resolutionNote: null },
+  { id: 'BRK-010', code: 'B08', type: 'Raast Cycle Variance', subtype: 'net below constituents', category: 'Scheme variance', amount: 1250000, autoResolvable: false, status: 'OPEN', ageDays: 2, sla: 3, detail: 'RAAST settlement cycle RC-20260729-114 net credit is PKR 12,500.00 below the sum of its constituent transaction amounts.', proposedBy: null, proposal: null, resolutionNote: null },
+  { id: 'BRK-011', code: 'B09', type: 'Scroll Line Rejected', subtype: 'by treasury', category: 'Classification', amount: 650000, autoResolvable: false, status: 'PENDING_APPROVAL', ageDays: 1, sla: 5, detail: 'One line on the 29 Jul 2026 scroll to treasury (PKR 6,500.00) was rejected. The funds are already banked and held by NexusCollect — this is a classification issue, not a missing-cash alarm.', proposedBy: 'A. Rizvi', proposal: 'Treasury rejected the line for a head-code formatting error. Funds are confirmed banked. Propose: correct the head code and resubmit on the next scroll — no cash impact, no write-off needed.', resolutionNote: null }
+];
+
+const RESOLUTION_TYPES = ['Match to platform payment', 'Adjust as bank/acquirer charge', 'Reclassify (no cash impact)', 'Write-off (requires additional approval)'];
+const STATUS_ORDER = { OPEN: 0, PENDING_APPROVAL: 1, RESOLVED: 2, AUTO_RESOLVED: 3 };
+
+class Component extends DCLogic {
+  state = {
+    role: 'ANALYST', breaks: BREAKS.map(b => Object.assign({}, b)),
+    filter: 'ALL', selectedId: null, proposalType: RESOLUTION_TYPES[0], proposalNote: '',
+    rejectReason: '', submitting: false
+  };
+
+  ns() { return window.NexusShared; }
+  fmt(m) { return this.ns() ? this.ns().formatPKR(m) : 'PKR ' + (m / 100).toFixed(2); }
+
+  ageInfo(b) {
+    if (b.status === 'RESOLVED' || b.status === 'AUTO_RESOLVED') return { show: false };
+    const breached = b.ageDays > b.sla;
+    const approaching = !breached && b.ageDays >= b.sla * 0.7;
+    const color = breached ? 'var(--danger-600)' : (approaching ? 'var(--warning-600)' : 'var(--color-text-secondary)');
+    const label = b.ageDays + 'd open' + (breached ? ' — SLA breached (' + b.sla + 'd)' : (' — within ' + b.sla + 'd SLA'));
+    return { show: true, label: label, style: 'color:' + color + ';font-weight:var(--weight-medium);' };
+  }
+
+  decorate(b) {
+    const meta = this.ns().STATUS_META[b.status] || { tone: 'neutral', label: b.status };
+    const age = this.ageInfo(b);
+    const isAuto = b.status === 'AUTO_RESOLVED';
+    return Object.assign({}, b, {
+      amountFmt: this.fmt(b.amount),
+      statusTone: meta.tone, statusLabel: meta.label,
+      showAge: age.show, ageLabel: age.label, ageStyle: age.style,
+      rowStyle: isAuto ? 'opacity:0.75;' : '',
+      onOpen: () => this.setState({ selectedId: b.id, proposalNote: '', rejectReason: '' })
+    });
+  }
+
+  buildSelected() {
+    const s = this.state;
+    const b = s.breaks.find(x => x.id === s.selectedId);
+    if (!b) return null;
+    const base = this.decorate(b);
+    const isAnalyst = s.role === 'ANALYST';
+    const isApprover = s.role === 'APPROVER';
+    return Object.assign({}, base, {
+      isAutoResolved: b.status === 'AUTO_RESOLVED',
+      isResolved: b.status === 'RESOLVED',
+      resolvedTitle: b.status === 'RESOLVED' ? 'Resolved' : '',
+      hasProposal: !!b.proposal && b.status === 'PENDING_APPROVAL',
+      showAgeDetail: base.showAge,
+      showAnalystForm: b.status === 'OPEN' && isAnalyst,
+      showApproverActions: b.status === 'PENDING_APPROVAL' && isApprover,
+      showWaitingNote: b.status === 'PENDING_APPROVAL' && isAnalyst,
+      showNoProposalNote: b.status === 'OPEN' && isApprover
+    });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const decorated = s.breaks.map(b => this.decorate(b));
+    const filtered = decorated.filter(b => {
+      if (s.filter === 'ALL') return true;
+      if (s.filter === 'RESOLVED') return b.status === 'RESOLVED' || b.status === 'AUTO_RESOLVED';
+      return b.status === s.filter;
+    });
+    filtered.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+
+    const totalUnexplained = s.breaks.filter(b => b.status !== 'RESOLVED' && b.status !== 'AUTO_RESOLVED').reduce((sum, b) => sum + b.amount, 0);
+
+    const filterDefs = [
+      { key: 'ALL', label: 'All' }, { key: 'OPEN', label: 'Open' },
+      { key: 'PENDING_APPROVAL', label: 'Pending approval' }, { key: 'RESOLVED', label: 'Resolved' }
+    ].map(f => ({ label: f.label, variant: s.filter === f.key ? 'primary' : 'outline', onClick: () => this.setState({ filter: f.key }) }));
+
+    const selected = this.buildSelected();
+
+    return {
+      breakCount: s.breaks.length,
+      totalUnexplainedFmt: this.fmt(totalUnexplained),
+      analystVariant: s.role === 'ANALYST' ? 'primary' : 'outline',
+      approverVariant: s.role === 'APPROVER' ? 'primary' : 'outline',
+      onActAsAnalyst: () => this.setState({ role: 'ANALYST' }),
+      onActAsApprover: () => this.setState({ role: 'APPROVER' }),
+      filters: filterDefs,
+      visibleBreaks: filtered,
+      hasSelected: !!selected,
+      selected: selected || {},
+      onCloseDialog: () => this.setState({ selectedId: null }),
+      resolutionTypeOptions: RESOLUTION_TYPES.map(t => ({ value: t, label: t })),
+      proposalType: s.proposalType,
+      onProposalTypeChange: (e) => this.setState({ proposalType: e.target.value }),
+      proposalNote: s.proposalNote,
+      onProposalNoteChange: (e) => this.setState({ proposalNote: e.target.value }),
+      rejectReason: s.rejectReason,
+      onRejectReasonChange: (e) => this.setState({ rejectReason: e.target.value }),
+      submitting: s.submitting,
+      submitDisabled: s.submitting,
+      onSubmitProposal: () => {
+        const id = s.selectedId, note = s.proposalNote, type = s.proposalType;
+        this.setState({ submitting: true });
+        setTimeout(() => {
+          this.setState(st => ({
+            submitting: false,
+            breaks: st.breaks.map(b => b.id === id ? Object.assign({}, b, { status: 'PENDING_APPROVAL', proposedBy: 'A. Rizvi', proposal: note || ('Proposed resolution type: ' + type) }) : b)
+          }));
+        }, 500);
+      },
+      onApprove: () => {
+        const id = s.selectedId;
+        this.setState({ submitting: true });
+        setTimeout(() => {
+          this.setState(st => ({
+            submitting: false,
+            breaks: st.breaks.map(b => b.id === id ? Object.assign({}, b, { status: 'RESOLVED', resolutionNote: 'Approved by S. Malik — resolution applied as proposed.' }) : b)
+          }));
+        }, 500);
+      },
+      onReject: () => {
+        const id = s.selectedId, reason = s.rejectReason;
+        this.setState({ submitting: true });
+        setTimeout(() => {
+          this.setState(st => ({
+            submitting: false,
+            breaks: st.breaks.map(b => b.id === id ? Object.assign({}, b, { status: 'OPEN', proposal: null, proposedBy: null, resolutionNote: null }) : b),
+            rejectReason: ''
+          }));
+        }, 500);
+      }
+    };
+  }
+}
+
+</script>
+</body>
+</html>

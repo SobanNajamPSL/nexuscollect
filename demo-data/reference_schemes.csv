@@ -1,0 +1,10 @@
+scheme_code,agency_code,total_length,prefix,checksum_algo,sequence_digits,random_digits,is_platform_minted,charset,pattern_regex,collision_policy,notes
+PSID-FBR-17,FBR,17,12,DAMM,6,4,Y,NUMERIC,^12[0-9]{15}$,REJECT_AMBIGUOUS,Federal tax PSID
+PSID-PRA-17,PRA,17,21,DAMM,6,4,Y,NUMERIC,^21[0-9]{15}$,REJECT_AMBIGUOUS,Punjab services sales tax
+PSID-SRB-17,SRB,17,22,DAMM,6,4,Y,NUMERIC,^22[0-9]{15}$,REJECT_AMBIGUOUS,Sindh services sales tax
+PSID-ETPB-17,ETPB,17,31,DAMM,6,4,Y,NUMERIC,^31[0-9]{15}$,REJECT_AMBIGUOUS,Excise & Taxation Punjab
+PSID-PSCA-17,PSCA,17,41,DAMM,6,4,Y,NUMERIC,^41[0-9]{15}$,REJECT_AMBIGUOUS,Traffic e-challan
+CRN-WASA-13,WASA,13,51,DAMM,6,0,Y,NUMERIC,^51[0-9]{11}$,REJECT_AMBIGUOUS,Water consumer bill
+PSID-LHC-17,LHC,17,61,DAMM,6,4,Y,NUMERIC,^61[0-9]{15}$,REJECT_AMBIGUOUS,Court fees & deposits
+PSID-BOR-17,BOR,17,71,DAMM,6,4,Y,NUMERIC,^71[0-9]{15}$,REJECT_AMBIGUOUS,e-Stamp duty
+LEGACY-NADRA-14,NADRA,14,88,LUHN,11,0,N,NUMERIC,^88[0-9]{12}$,REJECT_AMBIGUOUS,"Legacy NADRA app no, Luhn, no product code"

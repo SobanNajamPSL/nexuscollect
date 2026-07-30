@@ -1,0 +1,9 @@
+/* Self-hosted webfonts. Poppins + Lato are Google Fonts SUBSTITUTIONS for Paysys Labs' real brand typefaces — see readme.md "Visual foundations > Typography" for the flag; replace src files here if the brand supplies real font files. */
+@font-face{font-family:'Poppins';font-style:normal;font-weight:400;font-display:swap;src:url('../assets/fonts/Poppins-400.woff2') format('woff2');}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:500;font-display:swap;src:url('../assets/fonts/Poppins-500.woff2') format('woff2');}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:600;font-display:swap;src:url('../assets/fonts/Poppins-600.woff2') format('woff2');}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:700;font-display:swap;src:url('../assets/fonts/Poppins-700.woff2') format('woff2');}
+@font-face{font-family:'Poppins';font-style:normal;font-weight:800;font-display:swap;src:url('../assets/fonts/Poppins-800.woff2') format('woff2');}
+@font-face{font-family:'Lato';font-style:normal;font-weight:400;font-display:swap;src:url('../assets/fonts/Lato-400.woff2') format('woff2');}
+@font-face{font-family:'Lato';font-style:italic;font-weight:400;font-display:swap;src:url('../assets/fonts/Lato-400i.woff2') format('woff2');}
+@font-face{font-family:'Lato';font-style:normal;font-weight:700;font-display:swap;src:url('../assets/fonts/Lato-700.woff2') format('woff2');}

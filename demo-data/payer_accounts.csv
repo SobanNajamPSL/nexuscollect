@@ -1,0 +1,28 @@
+payer_account_id,payer_id,agency_code,product_code,crn,account_label,attributes,status
+PA-VEH-001,PY-I001,ETPB,ETPB-TOKEN-CAR,LEA-17-1000,Private Car - LEA-17-1000,"{""vehicle_reg"": ""LEA-17-1000"", ""engine_cc"": 1000, ""make"": ""Toyota""}",ACTIVE
+PA-VEH-002,PY-I002,ETPB,ETPB-TOKEN-CAR,LEA-18-1137,Private Car - LEA-18-1137,"{""vehicle_reg"": ""LEA-18-1137"", ""engine_cc"": 1300, ""make"": ""Honda""}",ACTIVE
+PA-VEH-003,PY-I003,ETPB,ETPB-TOKEN-CAR,LEA-19-1274,Private Car - LEA-19-1274,"{""vehicle_reg"": ""LEA-19-1274"", ""engine_cc"": 1600, ""make"": ""Suzuki""}",ACTIVE
+PA-VEH-004,PY-I004,ETPB,ETPB-TOKEN-CAR,LEA-20-1411,Private Car - LEA-20-1411,"{""vehicle_reg"": ""LEA-20-1411"", ""engine_cc"": 1900, ""make"": ""KIA""}",ACTIVE
+PA-VEH-005,PY-I005,ETPB,ETPB-TOKEN-CAR,LEA-21-1548,Private Car - LEA-21-1548,"{""vehicle_reg"": ""LEA-21-1548"", ""engine_cc"": 1000, ""make"": ""Toyota""}",ACTIVE
+PA-VEH-006,PY-I006,ETPB,ETPB-TOKEN-CAR,LEA-17-1685,Private Car - LEA-17-1685,"{""vehicle_reg"": ""LEA-17-1685"", ""engine_cc"": 1300, ""make"": ""Honda""}",ACTIVE
+PA-VEH-007,PY-I007,ETPB,ETPB-TOKEN-CAR,LEA-18-1822,Private Car - LEA-18-1822,"{""vehicle_reg"": ""LEA-18-1822"", ""engine_cc"": 1600, ""make"": ""Suzuki""}",ACTIVE
+PA-VEH-008,PY-I008,ETPB,ETPB-TOKEN-CAR,LEA-19-1959,Private Car - LEA-19-1959,"{""vehicle_reg"": ""LEA-19-1959"", ""engine_cc"": 1900, ""make"": ""KIA""}",ACTIVE
+PA-VEH-009,PY-I009,ETPB,ETPB-TOKEN-CAR,LEA-20-2096,Private Car - LEA-20-2096,"{""vehicle_reg"": ""LEA-20-2096"", ""engine_cc"": 1000, ""make"": ""Toyota""}",ACTIVE
+PA-VEH-010,PY-I010,ETPB,ETPB-TOKEN-CAR,LEA-21-2233,Private Car - LEA-21-2233,"{""vehicle_reg"": ""LEA-21-2233"", ""engine_cc"": 1300, ""make"": ""Honda""}",ACTIVE
+PA-VEH-011,PY-I011,ETPB,ETPB-TOKEN-CAR,LEA-17-2370,Private Car - LEA-17-2370,"{""vehicle_reg"": ""LEA-17-2370"", ""engine_cc"": 1600, ""make"": ""Suzuki""}",ACTIVE
+PA-VEH-012,PY-I012,ETPB,ETPB-TOKEN-CAR,LEA-18-2507,Private Car - LEA-18-2507,"{""vehicle_reg"": ""LEA-18-2507"", ""engine_cc"": 1900, ""make"": ""KIA""}",ACTIVE
+PA-VEH-013,PY-I013,ETPB,ETPB-TOKEN-CAR,LEA-19-2644,Private Car - LEA-19-2644,"{""vehicle_reg"": ""LEA-19-2644"", ""engine_cc"": 1000, ""make"": ""Toyota""}",ACTIVE
+PA-VEH-014,PY-I014,ETPB,ETPB-TOKEN-CAR,LEA-20-2781,Private Car - LEA-20-2781,"{""vehicle_reg"": ""LEA-20-2781"", ""engine_cc"": 1300, ""make"": ""Honda""}",ACTIVE
+PA-VEH-015,PY-I015,ETPB,ETPB-TOKEN-CAR,LEA-21-2918,Private Car - LEA-21-2918,"{""vehicle_reg"": ""LEA-21-2918"", ""engine_cc"": 1600, ""make"": ""Suzuki""}",ACTIVE
+PA-WAT-001,PY-I001,WASA,WASA-WATER-DOM,514000001,"House 12, Street 4, Model Town, Lahore","{""property_id"": ""MT-1200"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-002,PY-I002,WASA,WASA-WATER-DOM,514007772,"House 13, Street 5, Model Town, Lahore","{""property_id"": ""MT-1201"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-003,PY-I003,WASA,WASA-WATER-DOM,514015545,"House 14, Street 6, Model Town, Lahore","{""property_id"": ""MT-1202"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-004,PY-I004,WASA,WASA-WATER-DOM,514023315,"House 15, Street 7, Model Town, Lahore","{""property_id"": ""MT-1203"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-005,PY-I005,WASA,WASA-WATER-DOM,514031080,"House 16, Street 8, Model Town, Lahore","{""property_id"": ""MT-1204"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-006,PY-I006,WASA,WASA-WATER-DOM,514038850,"House 17, Street 9, Model Town, Lahore","{""property_id"": ""MT-1205"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-007,PY-I007,WASA,WASA-WATER-DOM,514046624,"House 18, Street 10, Model Town, Lahore","{""property_id"": ""MT-1206"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-008,PY-I008,WASA,WASA-WATER-DOM,514054397,"House 19, Street 4, Model Town, Lahore","{""property_id"": ""MT-1207"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-009,PY-I009,WASA,WASA-WATER-DOM,514062166,"House 20, Street 5, Model Town, Lahore","{""property_id"": ""MT-1208"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-010,PY-I010,WASA,WASA-WATER-DOM,514069930,"House 21, Street 6, Model Town, Lahore","{""property_id"": ""MT-1209"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-011,PY-I011,WASA,WASA-WATER-DOM,514077700,"House 22, Street 7, Model Town, Lahore","{""property_id"": ""MT-1210"", ""connection_size_mm"": 20}",ACTIVE
+PA-WAT-012,PY-I012,WASA,WASA-WATER-DOM,514085470,"House 23, Street 8, Model Town, Lahore","{""property_id"": ""MT-1211"", ""connection_size_mm"": 20}",ACTIVE

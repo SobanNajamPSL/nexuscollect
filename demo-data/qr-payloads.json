@@ -1,0 +1,34 @@
+[
+  {
+    "name": "dynamic_with_amount",
+    "description": "Dynamic merchant-presented QR on a printed e-challan",
+    "psid": "41011300000190123",
+    "amount_minor": 375000,
+    "valid": true,
+    "payload": "00020101021226340008PK.RAAST0112NEXUSCOLLECT02024152049311530358654073750.005802PK5923PUNJAB SAFE CITIES AUTH6006LAHORE62530117410113000001901230511CHL-07791230713AGENCY-CTR-016304866B"
+  },
+  {
+    "name": "dynamic_open_amount",
+    "description": "Dynamic QR, amount omitted (payer enters; resolved amount is authoritative)",
+    "psid": "71011800000183627",
+    "amount_minor": null,
+    "valid": true,
+    "payload": "00020101021226340008PK.RAAST0112NEXUSCOLLECT0202715204931153035865802PK5923BOARD OF REVENUE PUNJAB6006LAHORE62380117710118000001836270713AGENCY-CTR-01630408A7"
+  },
+  {
+    "name": "static_counter",
+    "description": "Static counter QR: no PSID, no amount. Fallback only.",
+    "psid": null,
+    "amount_minor": null,
+    "valid": true,
+    "payload": "00020101021126340008PK.RAAST0112NEXUSCOLLECT0202005204931153035865802PK5917LAHORE HIGH COURT6006LAHORE62170713AGENCY-CTR-016304D2BF"
+  },
+  {
+    "name": "corrupted_crc",
+    "description": "Deliberately corrupted CRC. Must be rejected with QR_CRC_INVALID.",
+    "psid": "41011300000190123",
+    "amount_minor": 375000,
+    "valid": false,
+    "payload": "00020101021226340008PK.RAAST0112NEXUSCOLLECT02024152049311530358654073750.005802PK5923PUNJAB SAFE CITIES AUTH6006LAHORE62530117410113000001901230511CHL-07791230713AGENCY-CTR-0163048694"
+  }
+]
