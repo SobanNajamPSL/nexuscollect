@@ -6,6 +6,7 @@ import { hashPrimaryId, encryptPrimaryId } from "../modules/identity/pii.js";
 import { applyProductDerivedRules } from "./apply-product-rules.js";
 import { ingestReconSourceFiles } from "./ingest-recon-source.js";
 import { mintReceiptsForSettledAssessments } from "../modules/evidence/receipt.js";
+import { postHistoricalJournals } from "./post-historical-journals.js";
 import type { Clock } from "../platform/clock/index.js";
 
 /**
@@ -48,6 +49,7 @@ export async function loadDemoData(db: Kysely<Database>, demoDataDir: string, cl
     await loadPaymentAllocations(trx, demoDataDir, paymentById, assessmentById, lineItemById, revenueHeadById);
     await loadRequestsToPay(trx, demoDataDir, assessmentById, paymentById);
     await mintReceiptsForSettledAssessments(trx, clock); // finding K — pre-minted now, resolve stays read-only
+    await postHistoricalJournals(trx, clock); // Phase 2 §10.8: real ledger entries for the 115 historical payments' already-loaded allocation facts
     await ingestReconSourceFiles(trx, demoDataDir, clock); // finding Q — raw ingestion only
   });
 }

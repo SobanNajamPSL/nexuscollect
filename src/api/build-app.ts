@@ -20,6 +20,10 @@ import { requireInstitutionId } from "./auth-stub.js";
 import { handleIdempotently } from "./idempotency-middleware.js";
 import { resolveRequestSchema, resolveResponseSchema, problemSchema } from "./schemas/resolve.js";
 import { createAssessmentRequestSchema, amendAssessmentRequestSchema, cancelAssessmentRequestSchema, assessmentResponseSchema } from "./schemas/assessment.js";
+import { createPaymentIntentRequestSchema, paymentIntentResponseSchema, confirmPaymentRequestSchema, paymentResponseSchema, reversePaymentRequestSchema, receiptResponseSchema } from "./schemas/payment.js";
+import { createPaymentIntent, capturePayment, reversePayment, resolveUncertainPayment, ResolutionTokenInvalidError, HardDuplicatePaymentError } from "../modules/payment/index.js";
+import { checkTrialBalance, checkAllocationIntegrity, checkBalanceRebuild, checkLedgerVsSubledger, verifyLedgerChain } from "../modules/control/index.js";
+import { toWireMinor } from "../platform/money/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -387,6 +391,221 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       }
     },
   );
+
+  // --- Phase 2: payment intents + the apply pipeline ---
+
+  app.post(
+    "/v1/payment-intents",
+    { preHandler: requireInstitutionId, schema: { body: createPaymentIntentRequestSchema, response: { 201: paymentIntentResponseSchema, 401: problemSchema } } },
+    async (request, reply) => {
+      const body = request.body as { resolution_token: string; channel: string; payer_id?: string };
+      try {
+        await handleIdempotently(request, reply, db, clock, "POST /v1/payment-intents", async () => {
+          const { intentReference } = await createPaymentIntent(db, { resolutionToken: body.resolution_token, channel: body.channel, ...(body.payer_id ? { payerId: body.payer_id } : {}), institutionId: String(request.headers["x-institution-id"]) }, clock);
+          const intent = await db.selectFrom("payment_intent").selectAll().where("intent_reference", "=", intentReference).executeTakeFirstOrThrow();
+          return {
+            status: 201,
+            body: { intent_reference: intent.intent_reference, status: intent.status, channel: intent.channel, requested_amount_minor: toWireMinor(intent.requested_amount_minor), total_debit_minor: toWireMinor(intent.total_debit_minor), currency: intent.currency, quote_expires_at: intent.quote_expires_at.toISOString() },
+          };
+        });
+      } catch (err) {
+        if (err instanceof ResolutionTokenInvalidError) {
+          return reply.code(401).send({ type: "https://errors.nexuscollect.example/RESOLUTION_TOKEN_INVALID", title: "Invalid resolution token", status: 401, code: "RESOLUTION_TOKEN_INVALID", detail: err.message, retryable: false });
+        }
+        throw err;
+      }
+    },
+  );
+
+  app.get(
+    "/v1/payment-intents/:intentReference",
+    { preHandler: requireInstitutionId, schema: { response: { 200: paymentIntentResponseSchema, 404: problemSchema } } },
+    async (request, reply) => {
+      const { intentReference } = request.params as { intentReference: string };
+      const intent = await db.selectFrom("payment_intent").selectAll().where("intent_reference", "=", intentReference).executeTakeFirst();
+      if (!intent) {
+        return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment intent not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment_intent "${intentReference}".`, retryable: false });
+      }
+      return reply.code(200).send({ intent_reference: intent.intent_reference, status: intent.status, channel: intent.channel, requested_amount_minor: toWireMinor(intent.requested_amount_minor), total_debit_minor: toWireMinor(intent.total_debit_minor), currency: intent.currency, quote_expires_at: intent.quote_expires_at.toISOString() });
+    },
+  );
+
+  app.post(
+    "/v1/payment-intents/:intentReference/cancel",
+    { preHandler: requireInstitutionId, schema: { response: { 200: paymentIntentResponseSchema, 404: problemSchema } } },
+    async (request, reply) => {
+      const { intentReference } = request.params as { intentReference: string };
+      const intent = await db.selectFrom("payment_intent").selectAll().where("intent_reference", "=", intentReference).executeTakeFirst();
+      if (!intent) {
+        return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment intent not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment_intent "${intentReference}".`, retryable: false });
+      }
+      await db.updateTable("payment_intent").set({ status: "ABANDONED" }).where("id", "=", intent.id).execute();
+      return reply.code(200).send({ intent_reference: intent.intent_reference, status: "ABANDONED", channel: intent.channel, requested_amount_minor: toWireMinor(intent.requested_amount_minor), total_debit_minor: toWireMinor(intent.total_debit_minor), currency: intent.currency, quote_expires_at: intent.quote_expires_at.toISOString() });
+    },
+  );
+
+  function mapPaymentToApi(payment: { payment_reference: string; status: string; gross_amount_minor: bigint; unapplied_amount_minor: bigint; currency: string; value_date: string; application_trace: unknown }, settledPsids: string[]) {
+    return {
+      payment_reference: payment.payment_reference,
+      status: payment.status,
+      gross_amount_minor: toWireMinor(payment.gross_amount_minor),
+      unapplied_amount_minor: toWireMinor(payment.unapplied_amount_minor),
+      currency: payment.currency,
+      value_date: payment.value_date,
+      settled_psids: settledPsids,
+      application_trace: payment.application_trace ?? {},
+    };
+  }
+
+  app.post(
+    "/v1/payments",
+    { preHandler: requireInstitutionId, schema: { body: confirmPaymentRequestSchema, response: { 201: paymentResponseSchema, 409: problemSchema } } },
+    async (request, reply) => {
+      const body = request.body as {
+        intent_reference?: string | null; channel: string; rail: "RAAST" | "IBFT_1LINK" | "PRISM_RTGS" | "PAYPAK" | "CARD_SCHEME" | "INTERNAL_BOOK" | "CASH" | "CHEQUE_CLEARING" | "WALLET";
+        gross_amount_minor: number; currency?: string; value_date: string; obligation_discharge_date: string;
+        rail_e2e_id?: string; switch_stan?: string; switch_rrn?: string; acquirer_id?: string; instrument_id?: string;
+        payer_account_masked?: string; payer_bank_bic?: string; remittance_raw?: string;
+        explicit_allocations?: { psid: string; line_type?: string; revenue_head_code?: string; amount_minor: number }[];
+        capture_outcome?: "CONFIRMED" | "UNCERTAIN" | "FAILED";
+      };
+
+      try {
+        await handleIdempotently(request, reply, db, clock, "POST /v1/payments", async () => {
+          const result = await capturePayment(
+            db,
+            {
+              paymentReference: "",
+              ...(body.intent_reference ? { intentReference: body.intent_reference } : {}),
+              channel: body.channel, rail: body.rail, grossAmountMinor: BigInt(body.gross_amount_minor),
+              ...(body.currency ? { currency: body.currency } : {}), valueDate: body.value_date, obligationDischargeDate: body.obligation_discharge_date,
+              ...(body.rail_e2e_id ? { railE2eId: body.rail_e2e_id } : {}), ...(body.switch_stan ? { switchStan: body.switch_stan } : {}),
+              ...(body.switch_rrn ? { switchRrn: body.switch_rrn } : {}), ...(body.acquirer_id ? { acquirerId: body.acquirer_id } : {}),
+              ...(body.instrument_id ? { instrumentId: body.instrument_id } : {}), ...(body.payer_account_masked ? { payerAccountMasked: body.payer_account_masked } : {}),
+              ...(body.payer_bank_bic ? { payerBankBic: body.payer_bank_bic } : {}), ...(body.remittance_raw ? { remittanceRaw: body.remittance_raw } : {}),
+              ...(body.explicit_allocations ? { explicitAllocations: body.explicit_allocations.map((a) => ({ psid: a.psid, ...(a.line_type ? { lineType: a.line_type } : {}), ...(a.revenue_head_code ? { revenueHeadCode: a.revenue_head_code } : {}), amountMinor: BigInt(a.amount_minor) })) } : {}),
+              ...(body.capture_outcome ? { captureOutcome: body.capture_outcome } : {}),
+            },
+            clock,
+          );
+          const payment = await db.selectFrom("payment").selectAll().where("id", "=", result.paymentId).executeTakeFirstOrThrow();
+          const settledPsids = result.settledAssessmentIds.length
+            ? (await db.selectFrom("assessment").select("psid").where("id", "in", result.settledAssessmentIds).execute()).map((r) => r.psid)
+            : [];
+          return { status: 201, body: mapPaymentToApi(payment, settledPsids) };
+        });
+      } catch (err) {
+        if (err instanceof HardDuplicatePaymentError) {
+          return reply.code(409).send({ type: "https://errors.nexuscollect.example/DUPLICATE_PAYMENT", title: "Duplicate payment", status: 409, code: "DUPLICATE_PAYMENT", detail: err.message, retryable: false });
+        }
+        throw err;
+      }
+    },
+  );
+
+  app.get(
+    "/v1/payments/:paymentReference",
+    { preHandler: requireInstitutionId, schema: { response: { 200: paymentResponseSchema, 404: problemSchema } } },
+    async (request, reply) => {
+      const { paymentReference } = request.params as { paymentReference: string };
+      const payment = await db.selectFrom("payment").selectAll().where("payment_reference", "=", paymentReference).executeTakeFirst();
+      if (!payment) {
+        return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment "${paymentReference}".`, retryable: false });
+      }
+      const settledPsids = (
+        await db.selectFrom("payment_allocation").innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id").select("assessment.psid").distinct().where("payment_allocation.payment_id", "=", payment.id).where("assessment.status", "=", "SETTLED").execute()
+      ).map((r) => r.psid);
+      return reply.code(200).send(mapPaymentToApi(payment, settledPsids));
+    },
+  );
+
+  app.post(
+    "/v1/payments/:paymentReference/reverse",
+    { preHandler: requireInstitutionId, schema: { body: reversePaymentRequestSchema, response: { 200: paymentResponseSchema, 404: problemSchema } } },
+    async (request, reply) => {
+      const { paymentReference } = request.params as { paymentReference: string };
+      const body = request.body as { reason: string };
+      const payment = await db.selectFrom("payment").selectAll().where("payment_reference", "=", paymentReference).executeTakeFirst();
+      if (!payment) {
+        return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment "${paymentReference}".`, retryable: false });
+      }
+      await reversePayment(db, payment.id, body.reason, { actorType: "INSTITUTION", actorId: String(request.headers["x-institution-id"]) }, clock);
+      const updated = await db.selectFrom("payment").selectAll().where("id", "=", payment.id).executeTakeFirstOrThrow();
+      return reply.code(200).send(mapPaymentToApi(updated, []));
+    },
+  );
+
+  app.get(
+    "/v1/payments/:paymentReference/receipt",
+    { preHandler: requireInstitutionId, schema: { response: { 200: receiptResponseSchema, 404: problemSchema } } },
+    async (request, reply) => {
+      const { paymentReference } = request.params as { paymentReference: string };
+      const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", paymentReference).executeTakeFirst();
+      const receipt = payment ? await db.selectFrom("receipt").selectAll().where("payment_id", "=", payment.id).executeTakeFirst() : undefined;
+      if (!receipt) {
+        return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "No receipt for this payment", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No receipt for payment "${paymentReference}".`, retryable: false });
+      }
+      return reply.code(200).send({ receipt_no: receipt.receipt_no, business_date: receipt.business_date, status: receipt.status });
+    },
+  );
+
+  app.post(
+    "/internal/payments/:paymentReference/resolve-uncertain",
+    { preHandler: requireInstitutionId },
+    async (request, reply) => {
+      const { paymentReference } = request.params as { paymentReference: string };
+      const body = request.body as { outcome: "FOUND_PAID" | "FOUND_NOT_PAID" | "STILL_UNRESOLVED"; source: "RAIL_STATUS_ENQUIRY" | "AGGREGATOR_ADVICE" | "INTRADAY_STATEMENT" | "EOD_STATEMENT" | "HUMAN_INVESTIGATION" };
+      const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", paymentReference).executeTakeFirst();
+      if (!payment) {
+        return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment "${paymentReference}".`, retryable: false });
+      }
+      await resolveUncertainPayment(db, payment.id, body, clock);
+      const updated = await db.selectFrom("payment").selectAll().where("id", "=", payment.id).executeTakeFirstOrThrow();
+      return reply.code(200).send(mapPaymentToApi(updated, []));
+    },
+  );
+
+  // --- §10.8: the five control assertions, plus verify-chain ---
+
+  app.get("/internal/control/trial-balance", async (request, reply) => {
+    const { date } = request.query as { date?: string };
+    const result = await checkTrialBalance(db, date);
+    return reply.code(200).send({
+      balanced: result.balanced,
+      total_debit_minor: toWireMinor(result.totalDebitMinor),
+      total_credit_minor: toWireMinor(result.totalCreditMinor),
+      date: result.date,
+    });
+  });
+
+  app.get("/internal/control/allocation-integrity", async (_request, reply) => {
+    const result = await checkAllocationIntegrity(db);
+    return reply.code(200).send({
+      passed: result.passed,
+      checked_count: result.checkedCount,
+      excluded_statuses: result.excludedStatuses,
+      breaks: result.breaks.map((b) => ({ payment_reference: b.paymentReference, gross_amount_minor: toWireMinor(b.grossAmountMinor), applied_minor: toWireMinor(b.appliedMinor), unapplied_minor: toWireMinor(b.unappliedMinor), difference_minor: toWireMinor(b.differenceMinor) })),
+    });
+  });
+
+  app.get("/internal/control/balance-rebuild", async (_request, reply) => {
+    const result = await checkBalanceRebuild(db);
+    return reply.code(200).send({ passed: result.passed, checked_count: result.checkedCount, breaks: result.breaks });
+  });
+
+  app.get("/internal/control/ledger-vs-subledger", async (_request, reply) => {
+    const result = await checkLedgerVsSubledger(db);
+    return reply.code(200).send({
+      passed: result.passed,
+      checked_agency_count: result.checkedAgencyCount,
+      breaks: result.breaks.map((b) => ({ agency_code: b.agencyCode, ledger_balance_minor: toWireMinor(b.ledgerBalanceMinor), subledger_balance_minor: toWireMinor(b.subledgerBalanceMinor), difference_minor: toWireMinor(b.differenceMinor) })),
+    });
+  });
+
+  app.get("/internal/ledger/verify-chain", async (_request, reply) => {
+    const chainBreak = await verifyLedgerChain(db);
+    return reply.code(200).send(chainBreak ? { intact: false, break: chainBreak } : { intact: true, break: null });
+  });
 
   return app;
 }

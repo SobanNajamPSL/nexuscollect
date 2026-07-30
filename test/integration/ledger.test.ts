@@ -108,6 +108,34 @@ describe("Ledger: append-only, balanced-at-commit, hash-chain tamper detection",
     expect(lineAfterDelete).toHaveLength(lineBefore.length); // still there
   });
 
+  // Phase 2 (§10.2): "UNIQUE (source_type, source_id, event_type, sequence)
+  // makes replay a no-op. This is what lets you safely re-run a failed apply
+  // job." A second post with the same key must not duplicate the entry.
+  it("is idempotent on (source_type, source_id, event_type, sequence) — a replay returns the original entry, not a duplicate", async () => {
+    const sourceId = randomUUID();
+    const input = {
+      eventType: "TEST_REPLAY",
+      sourceType: "test",
+      sourceId,
+      valueDate: "2026-07-30",
+      lines: [
+        { seq: 1, accountCode: "2020", direction: "CR" as const, amountMinor: 750_00n },
+        { seq: 2, accountCode: "1900", direction: "DR" as const, amountMinor: 750_00n },
+      ],
+    };
+
+    const first = await postJournalEntry(testDb.db, input, clock);
+    expect(first.replayed).toBe(false);
+
+    const replay = await postJournalEntry(testDb.db, input, clock);
+    expect(replay.replayed).toBe(true);
+    expect(replay.id).toBe(first.id);
+    expect(replay.entryNo).toBe(first.entryNo);
+
+    const entries = await testDb.db.selectFrom("journal_entry").select("id").where("event_type", "=", "TEST_REPLAY").execute();
+    expect(entries).toHaveLength(1);
+  });
+
   // PROMPTS.md Prompt 0, acceptance test 4: "Tampering with a journal row is
   // detected by verify-chain, which names the entry." We bypass the RULE by
   // going around it — the RULE blocks UPDATE/DELETE, but the whole point of a

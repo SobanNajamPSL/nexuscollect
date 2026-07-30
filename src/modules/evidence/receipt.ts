@@ -59,6 +59,43 @@ export async function findReceiptForPayment(
 }
 
 /**
+ * Mints the next gapless receipt number for one payment, §16.1's algorithm
+ * exactly: `{AGENCY}{YYYYMMDD}{9-digit seq}`, seq allocated from a real COUNT
+ * against `receipt` under an advisory lock (never an in-memory counter) so
+ * concurrent mints for the same agency/day never collide or gap. Used by
+ * Phase 2's live apply pipeline (`modules/payment`) for a newly-settled
+ * payment, and by the loader-time batch backfill below for historical ones —
+ * same function, same algorithm, two call sites.
+ */
+export async function mintReceiptForPayment(
+  trx: Transaction<Database>,
+  params: { paymentId: string; agencyId: string; agencyCode: string; businessDate: string },
+  clock: Clock,
+): Promise<{ receiptNo: string }> {
+  await sql`SELECT pg_advisory_xact_lock(${RECEIPT_SEQ_LOCK_KEY})`.execute(trx);
+
+  const existing = await trx.selectFrom("receipt").select("receipt_no").where("payment_id", "=", params.paymentId).executeTakeFirst();
+  if (existing) return { receiptNo: existing.receipt_no };
+
+  const { count } = await trx
+    .selectFrom("receipt")
+    .select(({ fn }) => fn.countAll().as("count"))
+    .where("agency_id", "=", params.agencyId)
+    .where("business_date", "=", params.businessDate)
+    .executeTakeFirstOrThrow();
+  const seq = Number(count) + 1;
+  const dateCompact = params.businessDate.replaceAll("-", "");
+  const receiptNo = `${params.agencyCode}${dateCompact}${String(seq).padStart(9, "0")}`;
+
+  await trx
+    .insertInto("receipt")
+    .values({ receipt_no: receiptNo, agency_id: params.agencyId, payment_id: params.paymentId, business_date: params.businessDate, status: "VALID", issued_at: clock.now() })
+    .execute();
+
+  return { receiptNo };
+}
+
+/**
  * Loader-time backfill: mints a receipt for every SETTLED assessment that has
  * a real APPLIED payment_allocation and doesn't already have one, using the
  * exact same §16.1 gapless-per-agency-per-day algorithm. Idempotent — skips

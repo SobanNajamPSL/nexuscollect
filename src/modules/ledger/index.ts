@@ -64,14 +64,39 @@ function chainableLineContent(line: JournalLineInput) {
  * afterwards, because journal_entry has no UPDATE path at all (§10.5's RULE ...
  * DO INSTEAD NOTHING) — so entry_no and the line content must both be known before
  * that one INSERT happens.
+ *
+ * Idempotent on `(source_type, source_id, event_type, sequence)` (§10.2: "this is
+ * what lets you safely re-run a failed apply job"). On a replay, the INSERT is a
+ * no-op (`ON CONFLICT DO NOTHING`) and the already-posted entry is returned
+ * verbatim — the caller never gets a duplicate entry or a thrown unique-violation.
+ *
+ * Takes whatever handle the caller passes — a plain `Kysely<Database>` or an
+ * already-open `Transaction<Database>` — and only opens its own transaction
+ * when it isn't already inside one (mirrors `platform/audit`'s
+ * `appendAuditEntry` fix for the same nested-transaction problem). This is
+ * what lets `modules/journal-templates`' `postJournalTemplate` be called from
+ * within a caller's own transaction (e.g. the apply pipeline posting several
+ * templates alongside allocation writes, all atomically).
  */
 export async function postJournalEntry(
   db: Kysely<Database>,
   input: PostJournalEntryInput,
   clock: Clock,
-): Promise<{ id: string; entryNo: bigint }> {
-  return db.transaction().execute(async (trx: Transaction<Database>) => {
+): Promise<{ id: string; entryNo: bigint; replayed: boolean }> {
+  const run = async (trx: Transaction<Database>) => {
     await sql`SELECT pg_advisory_xact_lock(${LEDGER_CHAIN_LOCK_KEY})`.execute(trx);
+
+    const existing = await trx
+      .selectFrom("journal_entry")
+      .select(["id", "entry_no"])
+      .where("source_type", "=", input.sourceType)
+      .where("source_id", "=", input.sourceId)
+      .where("event_type", "=", input.eventType)
+      .where("sequence", "=", input.sequence ?? 1)
+      .executeTakeFirst();
+    if (existing) {
+      return { id: existing.id, entryNo: existing.entry_no, replayed: true };
+    }
 
     const last = await trx
       .selectFrom("journal_entry")
@@ -128,8 +153,45 @@ export async function postJournalEntry(
         .execute();
     }
 
-    return { id, entryNo };
-  });
+    return { id, entryNo, replayed: false };
+  };
+
+  return db.isTransaction ? run(db as Transaction<Database>) : db.transaction().execute(run);
+}
+
+export interface LedgerAccountDimension {
+  baseCode: string;
+  dimensionKey: string;
+  name: string;
+  accountType: "ASSET" | "LIABILITY" | "INCOME" | "EXPENSE" | "EQUITY" | "MEMO";
+  normalBalance: "DR" | "CR";
+  agencyId?: string;
+}
+
+/**
+ * §10.3 flags certain accounts (`1010`,`1020`,`1030`,`1100`,`1150`,`1200`,`1300`,
+ * `2010`,`2015`,`2030`,`2040`) as carrying a "{branch}"/"{bank}"/"{rail}"/
+ * "{agent}"/"{agency}" placeholder — one account per real-world instance of that
+ * dimension, instantiated on demand rather than pre-seeded (Phase 0's migration
+ * 0014 seeds only the singular accounts and leaves this comment explaining why).
+ * The account code itself carries the dimension (`2010-FBR`), matching the
+ * migration's own worked example — deterministic, so no read-then-decide race:
+ * `ON CONFLICT (code) DO NOTHING` is always safe.
+ */
+export async function getOrCreateLedgerAccount(trx: Transaction<Database>, dim: LedgerAccountDimension): Promise<string> {
+  const code = `${dim.baseCode}-${dim.dimensionKey}`;
+  await trx
+    .insertInto("ledger_account")
+    .values({
+      code,
+      name: `${dim.name} — ${dim.dimensionKey}`,
+      account_type: dim.accountType,
+      normal_balance: dim.normalBalance,
+      agency_id: dim.agencyId ?? null,
+    })
+    .onConflict((oc) => oc.column("code").doNothing())
+    .execute();
+  return code;
 }
 
 /**
