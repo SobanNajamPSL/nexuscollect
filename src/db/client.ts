@@ -8,6 +8,13 @@ import type { Database } from "./schema.js";
 // so every int8 column comes back as a native bigint instead.
 pg.types.setTypeParser(20, (value: string) => BigInt(value));
 
+// node-postgres's default parser for DATE (oid 1082) returns a JS `Date`
+// (midnight local-ish), which is wrong for a pure calendar date — CLAUDE.md's
+// two-sided-time rule treats `value_date`-style columns as Asia/Karachi
+// business dates, not instants, and the schema types every DATE column as a
+// plain `YYYY-MM-DD` string (Dated in db/schema.ts). Keep it a string.
+pg.types.setTypeParser(1082, (value: string) => value);
+
 export function createPool(connectionString: string): pg.Pool {
   return new pg.Pool({ connectionString });
 }

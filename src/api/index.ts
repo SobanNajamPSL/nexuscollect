@@ -1,18 +1,23 @@
-import Fastify from "fastify";
+import "dotenv/config";
+import { buildApp } from "./build-app.js";
+import { getDb } from "../db/client.js";
+import { createClock } from "../platform/clock/index.js";
 
 /**
- * Phase 0 skeleton only — per PROMPTS.md Prompt 0: "Do not build any API endpoint,
- * any UI, or any business logic beyond what Phase 0 lists." `/health` is
- * infrastructure (Docker Compose's healthcheck target), not part of the v1 API
- * surface defined in api/openapi.yaml — that surface starts at Phase 1's
- * `POST /v1/resolve`.
+ * Runtime entrypoint. Phase 1 adds the first real endpoint, `POST /v1/resolve`
+ * (§8.2) — everything else is still deferred (Phase 0's `/health` stays for
+ * Docker Compose's healthcheck target).
  */
-const app = Fastify({ logger: true });
+async function main(): Promise<void> {
+  const db = getDb();
+  const clock = createClock();
+  const app = await buildApp({ db, clock });
 
-app.get("/health", async () => ({ status: "ok" }));
+  const port = Number(process.env["API_PORT"] ?? 3000);
+  await app.listen({ port, host: "0.0.0.0" });
+}
 
-const port = Number(process.env["API_PORT"] ?? 3000);
-app.listen({ port, host: "0.0.0.0" }).catch((err) => {
-  app.log.error(err);
+main().catch((err) => {
+  console.error(err);
   process.exit(1);
 });

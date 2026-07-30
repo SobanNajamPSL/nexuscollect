@@ -357,6 +357,16 @@ export interface RequestToPayTable {
   created_at: GeneratedTimestamp;
 }
 
+export interface ReceiptTable {
+  id: Generated<string>;
+  receipt_no: string;
+  agency_id: string;
+  payment_id: string;
+  business_date: Dated;
+  status: Generated<"VALID" | "VOIDED" | "REFUNDED">;
+  issued_at: GeneratedTimestamp;
+}
+
 export interface LedgerAccountTable {
   code: string;
   name: string;
@@ -555,6 +565,7 @@ export interface Database {
   instrument: InstrumentTable;
   instrument_link: InstrumentLinkTable;
   request_to_pay: RequestToPayTable;
+  receipt: ReceiptTable;
   ledger_account: LedgerAccountTable;
   journal_entry: JournalEntryTable;
   journal_line: JournalLineTable;

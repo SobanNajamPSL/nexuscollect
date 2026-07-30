@@ -1,7 +1,9 @@
 import { sql, type Kysely, type Transaction } from "kysely";
 import type { Database } from "../db/schema.js";
 import { readDemoCsv, str, requiredStr, minor, minorOrNull, yn, jsonOrNull, jsonOr, pipeList, dateOrNull, tsOrNull, toJsonb } from "./csv-helpers.js";
-import { hashPrimaryId, encryptPrimaryId } from "./pii.js";
+import { hashPrimaryId, encryptPrimaryId } from "../modules/identity/pii.js";
+import { EARLY_DISCOUNT_RULE_OVERRIDES, SURCHARGE_RULE_OVERRIDES } from "../modules/obligation/product-rule-overrides.js";
+import { syncResolutionIndex } from "../modules/obligation/resolution-index-sync.js";
 
 /**
  * Loads all 22 demo-data/ files into the database, in the FK order documented by
@@ -188,6 +190,15 @@ async function loadProducts(
         secondary_lookup_keys: toJsonb(jsonOr(row["secondary_lookup_keys"], [])) as never,
         status: requiredStr(row["status"], "status"),
         effective_from: requiredStr(row["effective_from"], "effective_from"),
+        // See product-rule-overrides.ts: demo-data has no surcharge_rule/
+        // early_discount_rule columns; this seeds the one product Phase 1's
+        // resolution gate actually needs configured.
+        surcharge_rule: SURCHARGE_RULE_OVERRIDES[row["product_code"] as string]
+          ? (toJsonb(SURCHARGE_RULE_OVERRIDES[row["product_code"] as string]) as never)
+          : null,
+        early_discount_rule: EARLY_DISCOUNT_RULE_OVERRIDES[row["product_code"] as string]
+          ? (toJsonb(EARLY_DISCOUNT_RULE_OVERRIDES[row["product_code"] as string]) as never)
+          : null,
       })
       .returning(["id"])
       .executeTakeFirstOrThrow();
@@ -359,6 +370,10 @@ async function loadAssessments(
       .returning(["id"])
       .executeTakeFirstOrThrow();
     byBusinessId.set(row["assessment_id"] as string, { id: inserted.id, agencyId, psid });
+    // Phase 1's resolution_index has no other write path for demo-loaded
+    // assessments — the loader inserts directly, bypassing
+    // modules/obligation.createAssessment, so it must sync the index itself.
+    await syncResolutionIndex(trx, inserted.id, true);
   }
   return byBusinessId;
 }

@@ -8,6 +8,10 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:
  * single demo-grade key from the environment, with a fixed fallback so the loader
  * runs out of the box. Replace both with real KMS-backed keys before this is
  * anything but a demo.
+ *
+ * Lives in modules/identity (one of CLAUDE.md's twelve capability modules) since
+ * both the demo-data loader and modules/resolution's identity-keyed lookup
+ * (CNIC/NTN/STRN) need to hash a raw ID value the exact same way.
  */
 const DEMO_HASH_SECRET = process.env["PAYER_ID_HASH_SECRET"] ?? "nexuscollect-demo-hash-secret-do-not-use-in-prod";
 const DEMO_ENC_KEY = createHmac("sha256", "nexuscollect-demo-enc-key-do-not-use-in-prod")
