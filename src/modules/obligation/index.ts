@@ -4,6 +4,7 @@ import type { Database } from "../../db/schema.js";
 import type { Clock } from "../../platform/clock/index.js";
 import { appendAuditEntry } from "../../platform/audit/index.js";
 import { appendOutboxEvent } from "../../platform/outbox/index.js";
+import { createRefundForAmendment } from "../refund/index.js";
 
 /**
  * §9.1's assessment state machine, plus findings D/F/G from the audit:
@@ -24,7 +25,12 @@ type TransitionEvent = "assessment.created" | "assessment.amended" | "assessment
 const ALLOWED_TRANSITIONS: Record<TransitionEvent, readonly AssessmentStatus[]> = {
   "assessment.created": [], // from === null: no prior state to validate
   // §9.1: amendment is legal from any still-open state; the old version always becomes AMENDED.
-  "assessment.amended": ["DRAFT", "ISSUED", "PARTIALLY_PAID", "OVERDUE"],
+  // SETTLED is included deliberately — §9.1's own rule table says "Amending
+  // downward below what has already been paid triggers an automatic
+  // overpayment (§14.2)", which is only reachable from a fully-paid
+  // (SETTLED) assessment. Excluding it here was a real Phase 1 gap: §14.2's
+  // entire scenario was unreachable through this guard until now.
+  "assessment.amended": ["DRAFT", "ISSUED", "PARTIALLY_PAID", "OVERDUE", "SETTLED"],
   // §9.1: "Only from DRAFT, ISSUED, OVERDUE, EXPIRED with allocated = 0."
   "assessment.cancelled": ["DRAFT", "ISSUED", "OVERDUE", "EXPIRED"],
 };
@@ -296,10 +302,9 @@ export interface AmendAssessmentResult {
   version: number;
   balanceMinor: bigint;
   /** §14.2: amending below what's already been allocated recognises an
-   * overpayment. Phase 2 (payment capture / overpay_treatment routing) isn't
-   * built yet, so this is surfaced as a figure, not automatically refunded —
-   * `refundId` stays null until that exists; building it now would be
-   * building ahead of the current phase. */
+   * overpayment, routed per the product's `overpay_treatment` — `refundId`
+   * is set for AUTO_REFUND, null for CREDIT_ON_ACCOUNT/ABSORB/REJECT (real
+   * dispositions, not a missing feature). */
   overpaymentRecognisedMinor: bigint;
   refundId: string | null;
 }
@@ -529,12 +534,22 @@ export async function amendAssessment(
       clock,
     );
 
+    // §14.2 step 5: route the surplus per the product's own overpay_treatment
+    // — AUTO_REFUND raises a real refund (PENDING_APPROVAL); CREDIT_ON_ACCOUNT/
+    // ABSORB/REJECT are different, legitimate dispositions of the same
+    // surplus, not a refund, so no refund row is created for those.
+    let refundId: string | null = null;
+    if (overpaymentRecognisedMinor > 0n) {
+      const product = await trx.selectFrom("collection_product").select("overpay_treatment").where("id", "=", old.product_id).executeTakeFirstOrThrow();
+      refundId = await createRefundForAmendment(trx, { assessmentId: old.id, overpaymentRecognisedMinor, overpayTreatment: product.overpay_treatment, actorId: actor.actorId }, clock);
+    }
+
     return {
       newAssessmentId: newId,
       version: old.version + 1,
       balanceMinor,
       overpaymentRecognisedMinor,
-      refundId: null,
+      refundId,
     };
   });
 }

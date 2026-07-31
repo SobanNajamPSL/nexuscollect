@@ -9,6 +9,7 @@ import { applyWaterfall, decideAssessmentOutcome, type OpenLine, type ExplicitIn
 import { getOrCreateLedgerAccount, postJournalEntry } from "../ledger/index.js";
 import { parseNarrative } from "../resolution/narrative-parser.js";
 import { mintReceiptForPayment } from "../evidence/receipt.js";
+import { detectProbableDuplicate } from "../refund/duplicate-detection.js";
 
 /**
  * §11.1's apply pipeline, all 8 steps: identify → deduplicate → derive
@@ -425,20 +426,47 @@ export async function capturePayment(db: Kysely<Database>, input: CapturePayment
       })
       .execute();
 
+    // §14.5's "probable duplicate" tier — checked for the common single-PSID
+    // explicit-allocation case (cheque cascade, switch adapter, direct API
+    // captures): same assessment/amount/payer-account within 10 minutes of an
+    // already-CONFIRMED payment. "Always accept the money... auto-create a
+    // refund in PENDING_APPROVAL" — never allocate the second payment; it
+    // falls through to the ordinary "no candidates" unapplied-receipt path
+    // below, then a real refund is raised on top of it.
+    let probableDuplicateOfPaymentId: string | null = null;
+    let effectiveExplicitAllocations = input.explicitAllocations;
+    if (input.explicitAllocations && input.explicitAllocations.length === 1 && input.payerAccountMasked) {
+      const target = await trx.selectFrom("assessment").select("id").where("psid", "=", input.explicitAllocations[0]!.psid).executeTakeFirst();
+      if (target) {
+        const dup = await detectProbableDuplicate(trx, { assessmentId: target.id, grossAmountMinor: input.grossAmountMinor, payerAccountMasked: input.payerAccountMasked, nowIso: clock.now() });
+        if (dup) {
+          probableDuplicateOfPaymentId = dup.paymentId;
+          effectiveExplicitAllocations = undefined;
+        }
+      }
+    }
+
     // --- Steps 3-7: DERIVE TARGETS, VALIDATE, ALLOCATE, HANDLE RESIDUAL, POST ---
     const { unappliedAmountMinor, settledAssessmentIds, journalPostings, derivationMethod, candidateAssessmentIds } = await runAllocation(
       trx,
       paymentId,
-      { rail: input.rail, valueDate: input.valueDate, grossAmountMinor: input.grossAmountMinor, ...(input.explicitAllocations ? { explicitAllocations: input.explicitAllocations } : {}), intent, ...(input.remittanceRaw ? { remittanceRaw: input.remittanceRaw } : {}), ...(input.payerId ? { payerId: input.payerId } : {}) },
+      { rail: input.rail, valueDate: input.valueDate, grossAmountMinor: input.grossAmountMinor, ...(effectiveExplicitAllocations ? { explicitAllocations: effectiveExplicitAllocations } : {}), intent, ...(input.remittanceRaw ? { remittanceRaw: input.remittanceRaw } : {}), ...(input.payerId ? { payerId: input.payerId } : {}) },
       clock,
     );
-    pushTrace("derive_targets", { method: derivationMethod, candidateAssessmentIds });
+    pushTrace("derive_targets", { method: probableDuplicateOfPaymentId ? "PROBABLE_DUPLICATE_UNAPPLIED" : derivationMethod, candidateAssessmentIds });
 
     await trx
       .updateTable("payment")
-      .set({ agency_id: journalPostings[0]?.agencyId ?? null, unapplied_amount_minor: unappliedAmountMinor, status: "CONFIRMED", finality: "FINAL", confirmed_at: clock.now(), application_trace: JSON.stringify(trace) as never })
+      .set({ agency_id: journalPostings[0]?.agencyId ?? null, unapplied_amount_minor: unappliedAmountMinor, status: "CONFIRMED", finality: "FINAL", confirmed_at: clock.now(), application_trace: JSON.stringify(trace) as never, ...(probableDuplicateOfPaymentId ? { duplicate_of_payment_id: probableDuplicateOfPaymentId } : {}) })
       .where("id", "=", paymentId)
       .execute();
+
+    if (probableDuplicateOfPaymentId) {
+      // §14.5: the money is accepted and recorded (T11 unapplied, above) —
+      // now auto-create the refund rather than waiting for the payer to ask.
+      const { createRefund } = await import("../refund/index.js");
+      await createRefund(trx, { paymentId, amountMinor: input.grossAmountMinor, reasonCode: "DUPLICATE", mode: "SURPLUS_ONLY", fundingSource: "PLATFORM_HELD", actorId: "duplicate-detection" }, clock);
+    }
 
     if (intent) {
       await trx.updateTable("payment_intent").set({ status: lateIntent ? "COMPLETED_LATE" : "COMPLETED" }).where("id", "=", intent.id).execute();
@@ -469,6 +497,14 @@ export async function reversePayment(db: Kysely<Database>, paymentId: string, re
 
     const allocations = await trx.selectFrom("payment_allocation").selectAll().where("payment_id", "=", paymentId).where("status", "=", "APPLIED").execute();
 
+    // §14.3 step 7: "once money has been swept to the treasury, the platform
+    // cannot reverse it out — it becomes a receivable from the agency."
+    // Checked per-allocation (Phase 4's runSweep tags each swept allocation
+    // via swept_in_payment_id) rather than assumed from the payment as a
+    // whole, since a payment can, in principle, span allocations swept on
+    // different cycles.
+    const anySwept = allocations.some((a) => a.swept_in_payment_id !== null);
+
     const affectedAssessmentIds = new Set<string>();
     for (const alloc of allocations) {
       await trx.updateTable("payment_allocation").set({ status: "REVERSED", reversed_at: clock.now(), reversal_reason: reason }).where("id", "=", alloc.id).execute();
@@ -484,12 +520,25 @@ export async function reversePayment(db: Kysely<Database>, paymentId: string, re
     }
 
     if (payment.agency_id && payment.gross_amount_minor > 0n) {
-      const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: (await trx.selectFrom("agency").select("code").where("id", "=", payment.agency_id).executeTakeFirstOrThrow()).code, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: payment.agency_id });
-      const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "1150", dimensionKey: payment.rail, name: "Rail Settlement Receivable", accountType: "ASSET", normalBalance: "DR" });
-      await postJournalEntry(trx, { eventType: "PAYMENT_REVERSED", sourceType: "payment", sourceId: paymentId, sequence: 3, agencyId: payment.agency_id, valueDate: payment.value_date, narrative: reason, lines: [
-        { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: payment.gross_amount_minor },
-        { seq: 2, accountCode: creditCode, direction: "CR", amountMinor: payment.gross_amount_minor },
-      ] }, clock);
+      const agencyCode = (await trx.selectFrom("agency").select("code").where("id", "=", payment.agency_id).executeTakeFirstOrThrow()).code;
+      if (anySwept) {
+        // Not a silent undo: 2010 was already relieved by the sweep, so this
+        // is a NEW receivable from the agency, not a reversal of the
+        // original collection entry.
+        const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "2070", dimensionKey: agencyCode, name: "Receivable from Agency (Post-Sweep Recovery)", accountType: "ASSET", normalBalance: "DR", agencyId: payment.agency_id });
+        const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "1150", dimensionKey: payment.rail, name: "Rail Settlement Receivable", accountType: "ASSET", normalBalance: "DR" });
+        await postJournalEntry(trx, { eventType: "PAYMENT_REVERSED", sourceType: "payment", sourceId: paymentId, sequence: 3, agencyId: payment.agency_id, valueDate: payment.value_date, narrative: `${reason} (post-sweep recovery)`, lines: [
+          { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: payment.gross_amount_minor },
+          { seq: 2, accountCode: creditCode, direction: "CR", amountMinor: payment.gross_amount_minor },
+        ] }, clock);
+      } else {
+        const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: agencyCode, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: payment.agency_id });
+        const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "1150", dimensionKey: payment.rail, name: "Rail Settlement Receivable", accountType: "ASSET", normalBalance: "DR" });
+        await postJournalEntry(trx, { eventType: "PAYMENT_REVERSED", sourceType: "payment", sourceId: paymentId, sequence: 3, agencyId: payment.agency_id, valueDate: payment.value_date, narrative: reason, lines: [
+          { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: payment.gross_amount_minor },
+          { seq: 2, accountCode: creditCode, direction: "CR", amountMinor: payment.gross_amount_minor },
+        ] }, clock);
+      }
     }
 
     await trx.updateTable("payment").set({ status: "REVERSED" }).where("id", "=", paymentId).execute();

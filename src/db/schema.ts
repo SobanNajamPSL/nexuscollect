@@ -287,6 +287,7 @@ export interface PaymentAllocationTable {
   applied_by_user_id: string | null;
   approval_id: string | null;
   seq: Generated<number>;
+  swept_in_payment_id: string | null;
 }
 
 export interface InstrumentTable {
@@ -437,6 +438,101 @@ export interface PeriodAgencySignoffTable {
   signed_off_by: string;
   signed_off_at: Timestamp;
   ip_address: string | null;
+}
+
+export interface RefundTable {
+  id: Generated<string>;
+  refund_reference: string;
+  payment_id: string;
+  amount_minor: bigint;
+  reason_code: "OVERPAYMENT" | "DUPLICATE" | "CANCELLED_SERVICE" | "ASSESSMENT_AMENDED" | "ERRONEOUS_PAYMENT" | "DEPOSIT_RELEASE" | "COURT_ORDER";
+  mode: "SURPLUS_ONLY" | "FULL_REVERSAL";
+  funding_source: "PLATFORM_HELD" | "AGENCY_FUNDED";
+  beneficiary_overridden: Generated<boolean>;
+  beneficiary_account_masked: string | null;
+  status: Generated<"PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "PAID" | "FAILED">;
+  approval_id: string | null;
+  created_at: GeneratedTimestamp;
+  paid_at: Timestamp | null;
+}
+
+export interface DisputeTable {
+  id: Generated<string>;
+  payment_id: string;
+  scheme_reason_code: string;
+  amount_minor: bigint;
+  status: Generated<"RECEIVED" | "EVIDENCE_SUBMITTED" | "WON" | "LOST" | "LIABILITY_ASSIGNED">;
+  liability: "OPERATOR" | "AGENCY" | "SHARED" | null;
+  representment_deadline: Dated | null;
+  evidence_bundle: JSONColumnType<Jsonb> | null;
+  created_at: GeneratedTimestamp;
+  resolved_at: Timestamp | null;
+}
+
+export interface RecallRequestTable {
+  id: Generated<string>;
+  payment_id: string;
+  requested_reason: string | null;
+  status: Generated<"RECEIVED" | "RETURNED" | "AGENCY_DECISION_PENDING" | "REJECTED">;
+  camt029_reason: string | null;
+  created_at: GeneratedTimestamp;
+  resolved_at: Timestamp | null;
+}
+
+export interface MandateTable {
+  id: Generated<string>;
+  mandate_reference: string;
+  payer_id: string;
+  product_id: string;
+  max_amount_minor: bigint;
+  frequency: "MONTHLY" | "QUARTERLY" | "ANNUAL";
+  first_collection_date: Dated;
+  final_collection_date: Dated | null;
+  status: Generated<"ACTIVE" | "SUSPENDED" | "CANCELLED">;
+  retry_count: Generated<number>;
+  created_at: GeneratedTimestamp;
+}
+
+export interface CardTokenTable {
+  id: Generated<string>;
+  payer_id: string | null;
+  gateway_token: string;
+  bin6: string;
+  last4: string;
+  scheme: "PAYPAK" | "VISA" | "MASTERCARD" | "UNIONPAY" | null;
+  created_at: GeneratedTimestamp;
+}
+
+export interface WalletAccountTable {
+  id: Generated<string>;
+  payer_id: string | null;
+  wallet_provider: string;
+  wallet_msisdn_masked: string | null;
+  created_at: GeneratedTimestamp;
+}
+
+export interface BulkBatchTable {
+  id: Generated<string>;
+  bulk_reference: string;
+  file_hash: string;
+  submitted_by_institution_id: string | null;
+  declared_row_count: number;
+  declared_total_minor: bigint;
+  on_amount_mismatch: Generated<"REJECT_ALL" | "APPLY_PRO_RATA" | "APPLY_IN_ORDER_UNTIL_EXHAUSTED">;
+  status: Generated<"VALIDATING" | "VALIDATED" | "REJECTED" | "CONFIRMED" | "APPLIED">;
+  rejection_reason: string | null;
+  payment_id: string | null;
+  created_at: GeneratedTimestamp;
+}
+
+export interface BulkBatchRowTable {
+  id: Generated<string>;
+  batch_id: string;
+  row_no: number;
+  psid: string;
+  amount_minor: bigint;
+  outcome: "VALID" | "INVALID";
+  error_code: string | null;
 }
 
 export interface SwitchPendingReversalTable {
@@ -669,5 +765,13 @@ export interface Database {
   scroll_line: ScrollLineTable;
   accounting_period: AccountingPeriodTable;
   period_agency_signoff: PeriodAgencySignoffTable;
+  refund: RefundTable;
+  dispute: DisputeTable;
+  recall_request: RecallRequestTable;
+  mandate: MandateTable;
+  card_token: CardTokenTable;
+  wallet_account: WalletAccountTable;
+  bulk_batch: BulkBatchTable;
+  bulk_batch_row: BulkBatchRowTable;
   schema_migrations: SchemaMigrationsTable;
 }

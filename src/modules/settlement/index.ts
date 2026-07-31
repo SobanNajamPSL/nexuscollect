@@ -383,6 +383,21 @@ export async function runSweep(db: Kysely<Database>, agencyCode: string, busines
         const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: agencyCode, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: agency.id });
         const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "1100", dimensionKey: "PLATFORM", name: "Collection Bank", accountType: "ASSET", normalBalance: "DR" });
         await postJournalTemplate(trx, { eventType: "SWEEP_TO_TREASURY", debitAccountCode: debitCode, creditAccountCode: creditCode, amountMinor: sweptAmountMinor, sourceType: "payment", sourceId: paymentId, agencyId: agency.id, valueDate: businessDate }, clock);
+
+        // §14.3 step 7's precondition: tag exactly the allocations THIS sweep
+        // covered, so a later reversal knows to raise a receivable from the
+        // agency instead of a normal contra.
+        await trx
+          .updateTable("payment_allocation as pa")
+          .set({ swept_in_payment_id: paymentId })
+          .from(["assessment as a", "payment as p"])
+          .whereRef("a.id", "=", "pa.assessment_id")
+          .whereRef("p.id", "=", "pa.payment_id")
+          .where("a.agency_id", "=", agency.id)
+          .where("p.value_date", "=", businessDate)
+          .where("pa.status", "=", "APPLIED")
+          .where("p.finality", "=", "FINAL")
+          .execute();
       }
     }
 

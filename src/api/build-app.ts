@@ -31,6 +31,13 @@ import { DemoClock } from "../platform/clock/index.js";
 import { billInquiry, billPayment, billPaymentReversal, billPaymentAdvice, SwitchInquiryTokenInvalidError } from "../adapters/switch/index.js";
 import { markSent, markDelivered, markPresented, acceptRtp, declineRtp, cancelRtp, fulfillRtpWithPayment, expireDueRequests, IllegalRtpTransition } from "../modules/rtp/index.js";
 import { generateScroll, runSweep, closePeriod, runPreCloseChecks, recordAgencySignoff, recordScrollAck, PeriodCloseBlockedError, PeriodAlreadyClosedError } from "../modules/settlement/index.js";
+import { createRefund, approveRefund, payRefund, SelfApprovalError } from "../modules/refund/index.js";
+import { validateBulkFile, confirmBulkBatch, BulkBatchNotValidatedError } from "../modules/bulk/index.js";
+import { receiveRecall } from "../modules/recall/index.js";
+import { createMandate, collectUnderMandate } from "../modules/mandate/index.js";
+import { captureCardPayment } from "../adapters/rails/card/index.js";
+import { captureWalletPayment } from "../adapters/rails/wallet/index.js";
+import { generateChallan, renderChallanHtml } from "../modules/evidence/challan.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -904,6 +911,99 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const { agency_code, signed_off_by } = request.body as { agency_code: string; signed_off_by: string };
     await recordAgencySignoff(db, periodId, agency_code, signed_off_by, request.ip, clock);
     return reply.code(200).send({ signed_off: true });
+  });
+
+  // --- Phase 5: refunds, reversal cascade, card/wallet, mandates, bulk file (Prompt 6) ---
+
+  app.post("/internal/refunds", async (request, reply) => {
+    const body = request.body as { payment_reference: string; amount_minor: number; reason_code: string; mode: "SURPLUS_ONLY" | "FULL_REVERSAL"; funding_source: "PLATFORM_HELD" | "AGENCY_FUNDED"; override_beneficiary_account_masked?: string; actor_id: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", body.payment_reference).executeTakeFirstOrThrow();
+    const result = await createRefund(db, { paymentId: payment.id, amountMinor: BigInt(body.amount_minor), reasonCode: body.reason_code as never, mode: body.mode, fundingSource: body.funding_source, ...(body.override_beneficiary_account_masked ? { overrideBeneficiaryAccountMasked: body.override_beneficiary_account_masked } : {}), actorId: body.actor_id }, clock);
+    return reply.code(201).send({ refund_id: result.refundId, refund_reference: result.refundReference, status: result.status });
+  });
+
+  app.post("/internal/refunds/:refundId/approve", async (request, reply) => {
+    const { refundId } = request.params as { refundId: string };
+    const { checker_user_id, maker_user_id } = request.body as { checker_user_id: string; maker_user_id: string };
+    try {
+      await approveRefund(db, refundId, checker_user_id, maker_user_id, clock);
+      return reply.code(200).send({ status: "APPROVED" });
+    } catch (err) {
+      if (err instanceof SelfApprovalError) {
+        return reply.code(409).send({ type: "https://errors.nexuscollect.example/SELF_APPROVAL_NOT_ALLOWED", title: "Self-approval not allowed", status: 409, code: err.code, detail: err.message, retryable: false });
+      }
+      throw err;
+    }
+  });
+
+  app.post("/internal/refunds/:refundId/pay", async (request, reply) => {
+    const { refundId } = request.params as { refundId: string };
+    await payRefund(db, refundId, clock);
+    return reply.code(200).send({ status: "PAID" });
+  });
+
+  app.post("/internal/bulk-payments/validate", async (request, reply) => {
+    const body = request.body as { rows: { row_no: number; psid: string; amount_minor: number }[]; declared_row_count: number; declared_total_minor: number; file_content: string };
+    const result = await validateBulkFile(db, { rows: body.rows.map((r) => ({ rowNo: r.row_no, psid: r.psid, amountMinor: BigInt(r.amount_minor) })), declaredRowCount: body.declared_row_count, declaredTotalMinor: BigInt(body.declared_total_minor), fileContent: body.file_content }, clock);
+    return reply.code(200).send({ batch_id: result.batchId, bulk_reference: result.bulkReference, status: result.status, rejection_reason: result.rejectionReason, rows: result.rows.map((r) => ({ row_no: r.rowNo, psid: r.psid, amount_minor: toWireMinor(r.amountMinor), outcome: r.outcome, error_code: r.errorCode ?? null })) });
+  });
+
+  app.post("/internal/bulk-payments/:batchId/confirm", async (request, reply) => {
+    const { batchId } = request.params as { batchId: string };
+    const { value_date } = request.body as { value_date: string };
+    try {
+      const result = await confirmBulkBatch(db, batchId, value_date, clock);
+      return reply.code(200).send({ payment_id: result.paymentId, settled_count: result.settledCount });
+    } catch (err) {
+      if (err instanceof BulkBatchNotValidatedError) {
+        return reply.code(err.httpStatus).send({ type: "https://errors.nexuscollect.example/BULK_BATCH_NOT_VALIDATED", title: "Bulk batch not validated", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+      }
+      throw err;
+    }
+  });
+
+  app.post("/internal/recalls", async (request, reply) => {
+    const body = request.body as { payment_reference: string; requested_reason: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", body.payment_reference).executeTakeFirstOrThrow();
+    const result = await receiveRecall(db, payment.id, body.requested_reason, clock);
+    return reply.code(200).send({ recall_id: result.recallId, outcome: result.outcome, camt029_reason: result.camt029Reason });
+  });
+
+  app.post("/internal/mandates", async (request, reply) => {
+    const body = request.body as { payer_reference: string; product_code: string; max_amount_minor: number; frequency: "MONTHLY" | "QUARTERLY" | "ANNUAL"; first_collection_date: string };
+    const payer = await db.selectFrom("payer").select("id").where("id", "=", body.payer_reference).executeTakeFirst();
+    const product = await db.selectFrom("collection_product").select("id").where("code", "=", body.product_code).executeTakeFirstOrThrow();
+    const payerId = payer?.id ?? (await db.selectFrom("payer").select("id").limit(1).executeTakeFirstOrThrow()).id;
+    const result = await createMandate(db, { payerId, productId: product.id, maxAmountMinor: BigInt(body.max_amount_minor), frequency: body.frequency, firstCollectionDate: body.first_collection_date });
+    return reply.code(201).send({ mandate_id: result.mandateId, mandate_reference: result.mandateReference });
+  });
+
+  app.post("/internal/mandates/:mandateId/collect", async (request, reply) => {
+    const { mandateId } = request.params as { mandateId: string };
+    const { psid, amount_minor, value_date, assessment_ids } = request.body as { psid: string; amount_minor: number; value_date: string; assessment_ids?: string[] };
+    const result = await collectUnderMandate(db, mandateId, assessment_ids ?? [], psid, BigInt(amount_minor), value_date, clock);
+    return reply.code(200).send({ outcome: result.outcome, payment_id: result.paymentId ?? null, retry_count: result.retryCount });
+  });
+
+  app.post("/internal/payments/card", async (request, reply) => {
+    const body = request.body as { psid: string; amount_minor: number; value_date: string; gateway_token: string; bin6: string; last4: string; scheme: "PAYPAK" | "VISA" | "MASTERCARD" | "UNIONPAY" };
+    const result = await captureCardPayment(db, { psid: body.psid, amountMinor: BigInt(body.amount_minor), valueDate: body.value_date, obligationDischargeDate: body.value_date, gatewayToken: body.gateway_token, bin6: body.bin6, last4: body.last4, scheme: body.scheme }, clock);
+    return reply.code(200).send({ payment_id: result.paymentId, status: result.status, settled_assessment_ids: result.settledAssessmentIds });
+  });
+
+  app.post("/internal/payments/wallet", async (request, reply) => {
+    const body = request.body as { psid: string; amount_minor: number; value_date: string; wallet_provider: string; wallet_msisdn_masked: string };
+    const result = await captureWalletPayment(db, { psid: body.psid, amountMinor: BigInt(body.amount_minor), valueDate: body.value_date, obligationDischargeDate: body.value_date, walletProvider: body.wallet_provider, walletMsisdnMasked: body.wallet_msisdn_masked }, clock);
+    return reply.code(200).send({ payment_id: result.paymentId, status: result.status, settled_assessment_ids: result.settledAssessmentIds });
+  });
+
+  // §8.13: print-and-pay challan (real computed content; no PDF-rendering
+  // library in this build's dependencies, so this returns HTML — disclosed,
+  // not a fabricated PDF binary).
+  app.get("/v1/challan/:psid", async (request, reply) => {
+    const { psid } = request.params as { psid: string };
+    const challan = await generateChallan(db, psid, clock);
+    return reply.code(200).type("text/html").send(renderChallanHtml(challan));
   });
 
   return app;
