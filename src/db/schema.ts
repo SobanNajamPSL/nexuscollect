@@ -367,6 +367,20 @@ export interface ReceiptTable {
   issued_at: GeneratedTimestamp;
 }
 
+export interface SwitchPendingReversalTable {
+  id: Generated<string>;
+  acquirer_id: string;
+  original_stan: string;
+  original_rrn: string;
+  txn_date: Dated;
+  transaction_amount_minor: bigint | null;
+  reversal_reason: "TIMEOUT" | "CUSTOMER_CANCELLED" | "TECHNICAL" | "DUPLICATE" | "LATE_RESPONSE";
+  status: Generated<"PENDING_ORIGINAL" | "PAIRED_AND_REVERSED" | "NOT_REVERSIBLE">;
+  resolved_payment_id: string | null;
+  created_at: GeneratedTimestamp;
+  resolved_at: Timestamp | null;
+}
+
 export interface LedgerAccountTable {
   code: string;
   name: string;
@@ -577,5 +591,6 @@ export interface Database {
   approval: ApprovalTable;
   audit_log: AuditLogTable;
   outbox_event: OutboxEventTable;
+  switch_pending_reversal: SwitchPendingReversalTable;
   schema_migrations: SchemaMigrationsTable;
 }

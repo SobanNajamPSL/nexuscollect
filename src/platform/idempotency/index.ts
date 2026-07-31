@@ -87,6 +87,7 @@ export async function withIdempotency<T>(
       idempotency_key: idempotencyKey,
       request_fingerprint: fingerprint,
       state: "IN_PROGRESS",
+      created_at: clock.now(),
     })
     .onConflict((oc) => oc.columns(["institution_id", "endpoint", "idempotency_key"]).doNothing())
     .returning(["institution_id"])

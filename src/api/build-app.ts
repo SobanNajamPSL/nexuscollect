@@ -28,6 +28,8 @@ import { runReconciliation } from "../modules/recon/index.js";
 import { returnInstrument } from "../modules/instrument/index.js";
 import { resetDemoData } from "../loader/reset.js";
 import { DemoClock } from "../platform/clock/index.js";
+import { billInquiry, billPayment, billPaymentReversal, billPaymentAdvice, SwitchInquiryTokenInvalidError } from "../adapters/switch/index.js";
+import { markSent, markDelivered, markPresented, acceptRtp, declineRtp, cancelRtp, fulfillRtpWithPayment, expireDueRequests, IllegalRtpTransition } from "../modules/rtp/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -745,6 +747,99 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       total_swept_minor: null, // Phase 5 (treasury sweep) — not implemented; disclosed as absent, not fabricated
       assessment_status_counts: statusCounts.map((s) => ({ status: s.status, count: Number(s.count), balance_total_minor: toWireMinor(BigInt(s.balance_total ?? 0n)) })),
     });
+  });
+
+  // --- Phase 3b: switch four-message biller contract (§8.6). Always HTTP 200 —
+  // the switch cannot act on an HTTP error; the outcome is carried in response_code. ---
+
+  app.post("/switch/v1/bill-inquiry", async (request, reply) => {
+    const body = request.body as { acquirer_id: string; stan: string; rrn: string; txn_date: string; consumer_number: string; biller_id: string; channel?: string };
+    const result = await billInquiry(db, body, clock);
+    return reply.code(200).send(result);
+  });
+
+  app.post("/switch/v1/bill-payment", async (request, reply) => {
+    const body = request.body as { acquirer_id: string; stan: string; rrn: string; txn_date: string; consumer_number: string; biller_id: string; response_reference: string; transaction_amount_minor: number; channel?: string };
+    try {
+      const result = await billPayment(db, { ...body, transaction_amount_minor: BigInt(body.transaction_amount_minor) }, clock);
+      return reply.code(200).send(result);
+    } catch (err) {
+      if (err instanceof SwitchInquiryTokenInvalidError) {
+        return reply.code(200).send({ response_code: "96", stan: body.stan, rrn: body.rrn, payment_reference: "", receipt_no: "", settled_amount_minor: 0, remaining_balance_minor: 0, biller_message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  app.post("/switch/v1/bill-payment-reversal", async (request, reply) => {
+    const body = request.body as { acquirer_id: string; original_stan: string; original_rrn: string; txn_date: string; transaction_amount_minor?: number; reversal_reason: "TIMEOUT" | "CUSTOMER_CANCELLED" | "TECHNICAL" | "DUPLICATE" | "LATE_RESPONSE" };
+    const { transaction_amount_minor, ...rest } = body;
+    const reversalInput = transaction_amount_minor !== undefined ? { ...rest, transaction_amount_minor: BigInt(transaction_amount_minor) } : rest;
+    const result = await billPaymentReversal(db, reversalInput, clock);
+    return reply.code(200).send(result);
+  });
+
+  app.post("/switch/v1/bill-payment-advice", async (request, reply) => {
+    const body = request.body as { acquirer_id: string; original_stan: string; original_rrn: string; txn_date: string; advice_outcome: "CONFIRMED" | "FAILED" };
+    const result = await billPaymentAdvice(db, body, clock);
+    return reply.code(200).send(result);
+  });
+
+  // --- Phase 3b: Request to Pay (§9.2 full state machine) ---
+
+  app.get("/internal/rtp", async (_request, reply) => {
+    const rows = await db
+      .selectFrom("request_to_pay")
+      .innerJoin("agency", "agency.id", "request_to_pay.agency_id")
+      .select(["request_to_pay.id", "request_to_pay.rtp_reference", "request_to_pay.status", "request_to_pay.amount_minor", "request_to_pay.payer_name", "request_to_pay.expires_at", "request_to_pay.reminder_count", "agency.code as agency_code"])
+      .orderBy("request_to_pay.created_at", "desc")
+      .limit(50)
+      .execute();
+    return reply.code(200).send(rows.map((r) => ({ id: r.id, rtp_reference: r.rtp_reference, status: r.status, amount_minor: toWireMinor(r.amount_minor), payer_name: r.payer_name, expires_at: r.expires_at.toISOString(), reminder_count: r.reminder_count, agency_code: r.agency_code })));
+  });
+
+  app.post("/internal/rtp/:rtpId/transition", async (request, reply) => {
+    const { rtpId } = request.params as { rtpId: string };
+    const { action, reason_code, mode, accepted_amount_minor } = request.body as { action: string; reason_code?: string; mode?: "FULL" | "FUTURE_DATED" | "PARTIAL"; accepted_amount_minor?: number };
+    const actor = { actorType: "USER" as const, actorId: "ops-console" };
+    try {
+      const result = await db.transaction().execute(async (trx) => {
+        switch (action) {
+          case "send": return markSent(trx, rtpId, `PAIN013-${rtpId.slice(0, 8)}`, actor, clock);
+          case "deliver": return markDelivered(trx, rtpId, actor, clock);
+          case "present": return markPresented(trx, rtpId, actor, clock);
+          case "accept": return acceptRtp(trx, rtpId, mode ?? "FULL", actor, clock, accepted_amount_minor !== undefined ? BigInt(accepted_amount_minor) : undefined);
+          case "decline": return declineRtp(trx, rtpId, reason_code ?? "UNSPECIFIED", actor, clock);
+          case "cancel": return cancelRtp(trx, rtpId, reason_code ?? "AGENCY_WITHDRAWN", actor, clock);
+          default: throw new Error(`Unknown RtP action "${action}"`);
+        }
+      });
+      return reply.code(200).send({ rtp_reference: result.rtpReference, status: result.status });
+    } catch (err) {
+      if (err instanceof IllegalRtpTransition) {
+        return reply.code(err.httpStatus).send({ type: "https://errors.nexuscollect.example/ILLEGAL_STATE_TRANSITION", title: "Illegal transition", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+      }
+      throw err;
+    }
+  });
+
+  /** An RtP is fulfilled by an ordinary payment capture that happens to
+   * originate from an accepted RtP — this endpoint is the seam a real
+   * RAAST RtP-fulfilment flow would call after `capturePayment` succeeds. */
+  app.post("/internal/rtp/:rtpId/fulfil", async (request, reply) => {
+    const { rtpId } = request.params as { rtpId: string };
+    const { payment_reference } = request.body as { payment_reference: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", payment_reference).executeTakeFirst();
+    if (!payment) {
+      return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment "${payment_reference}".`, retryable: false });
+    }
+    const result = await db.transaction().execute((trx) => fulfillRtpWithPayment(trx, rtpId, payment.id, { actorType: "SYSTEM", actorId: "rtp-fulfilment" }, clock));
+    return reply.code(200).send({ rtp_reference: result.rtpReference, status: result.status });
+  });
+
+  app.post("/internal/rtp/expire-due", async (_request, reply) => {
+    const expired = await expireDueRequests(db, clock);
+    return reply.code(200).send({ expired_count: expired.length, expired_references: expired });
   });
 
   return app;
