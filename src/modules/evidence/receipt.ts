@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Transaction } from "kysely";
 import type { Database } from "../../db/schema.js";
 import type { Clock } from "../../platform/clock/index.js";
+import { signReceiptPayload, type SignedReceipt } from "../../platform/receipt-signing/index.js";
 
 /**
  * §16.1's receipt numbering: "Gapless per agency per day; {AGENCY}{YYYYMMDD}
@@ -167,4 +168,56 @@ export async function mintReceiptsForSettledAssessments(trx: Transaction<Databas
   }
 
   return minted;
+}
+
+export interface SignedReceiptBundle extends SignedReceipt {
+  receiptNo: string;
+}
+
+/**
+ * §16.1's "detached digital signature over a canonical JSON of the receipt
+ * fields" + §16.2's offline-verifiable QR payload. Assembles the real
+ * receipt/payment/allocation/agency data already on file — nothing invented
+ * — canonicalises it, and signs it with the fixed demo Ed25519 key
+ * (`platform/receipt-signing`). A holder of just `{canonicalPayload,
+ * signatureBase64, publicKeyPem}` can verify authenticity with zero network
+ * access, which is the whole point of §16.2's "scan, disconnect, verify" demo.
+ */
+export async function getSignedReceiptBundle(db: Kysely<Database>, receiptNo: string): Promise<SignedReceiptBundle | null> {
+  const receipt = await db
+    .selectFrom("receipt")
+    .innerJoin("payment", "payment.id", "receipt.payment_id")
+    .innerJoin("agency", "agency.id", "receipt.agency_id")
+    .select(["receipt.receipt_no", "receipt.business_date", "receipt.status", "receipt.issued_at", "payment.payment_reference", "payment.gross_amount_minor", "payment.channel", "payment.rail", "payment.value_date", "payment.obligation_discharge_date", "agency.name as agency_name", "agency.code as agency_code"])
+    .where("receipt.receipt_no", "=", receiptNo)
+    .executeTakeFirst();
+  if (!receipt) return null;
+
+  const allocations = await db
+    .selectFrom("payment_allocation")
+    .innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id")
+    .innerJoin("revenue_head", "revenue_head.id", "payment_allocation.revenue_head_id")
+    .select(["assessment.psid", "assessment.payer_snapshot", "revenue_head.code as head_code", "revenue_head.name as head_name", "payment_allocation.amount_minor"])
+    .where("payment_allocation.payment_id", "=", (qb) => qb.selectFrom("receipt").select("payment_id").where("receipt_no", "=", receiptNo).limit(1))
+    .where("payment_allocation.status", "=", "APPLIED")
+    .execute();
+
+  const payload = {
+    receipt_no: receipt.receipt_no,
+    payment_reference: receipt.payment_reference,
+    agency_name: receipt.agency_name,
+    agency_code: receipt.agency_code,
+    business_date: receipt.business_date,
+    status: receipt.status,
+    channel: receipt.channel,
+    rail: receipt.rail,
+    value_date: receipt.value_date,
+    obligation_discharge_date: receipt.obligation_discharge_date,
+    gross_amount_minor: receipt.gross_amount_minor.toString(),
+    issued_at: receipt.issued_at.toISOString(),
+    head_wise: allocations.map((a) => ({ psid: a.psid, payer_name: (a.payer_snapshot as { name?: string } | null)?.name ?? null, head_code: a.head_code, head_name: a.head_name, amount_minor: a.amount_minor.toString() })),
+  };
+
+  const signed = signReceiptPayload(payload);
+  return { receiptNo: receipt.receipt_no, ...signed };
 }

@@ -38,6 +38,10 @@ import { createMandate, collectUnderMandate } from "../modules/mandate/index.js"
 import { captureCardPayment } from "../adapters/rails/card/index.js";
 import { captureWalletPayment } from "../adapters/rails/wallet/index.js";
 import { generateChallan, renderChallanHtml } from "../modules/evidence/challan.js";
+import { getSignedReceiptBundle } from "../modules/evidence/receipt.js";
+import { verifyReceiptSignature, getPublicKeyPem } from "../platform/receipt-signing/index.js";
+import { deliverPendingWebhooks, createWebhookSubscription, replayWebhooks } from "../modules/webhook/index.js";
+import { sendNotification } from "../modules/notification/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -1004,6 +1008,61 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const { psid } = request.params as { psid: string };
     const challan = await generateChallan(db, psid, clock);
     return reply.code(200).type("text/html").send(renderChallanHtml(challan));
+  });
+
+  // --- Phase 6: receipt signing + offline verification (§16.1/16.2) ---
+
+  app.get("/v1/receipts/:receiptNo/signed", async (request, reply) => {
+    const { receiptNo } = request.params as { receiptNo: string };
+    const bundle = await getSignedReceiptBundle(db, receiptNo);
+    if (!bundle) {
+      return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Receipt not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No receipt "${receiptNo}".`, retryable: false });
+    }
+    return reply.code(200).send({ receipt_no: bundle.receiptNo, canonical_payload: bundle.canonicalPayload, signature_base64: bundle.signatureBase64, public_key_pem: bundle.publicKeyPem });
+  });
+
+  // A pure function over caller-supplied inputs — this endpoint is a
+  // convenience for testing the same check a real offline verifier would run
+  // client-side; it does no DB lookup at all, proving no network/DB access
+  // is actually required to verify.
+  app.post("/v1/receipts/verify-signature", async (request, reply) => {
+    const { canonical_payload, signature_base64, public_key_pem } = request.body as { canonical_payload: string; signature_base64: string; public_key_pem?: string };
+    const valid = verifyReceiptSignature(canonical_payload, signature_base64, public_key_pem ?? getPublicKeyPem());
+    return reply.code(200).send({ valid });
+  });
+
+  app.get("/v1/receipts/verification-key", async (_request, reply) => {
+    return reply.code(200).send({ public_key_pem: getPublicKeyPem(), algorithm: "Ed25519" });
+  });
+
+  // --- Phase 6: webhooks (§18.2) ---
+
+  app.post("/internal/webhooks/subscriptions", async (request, reply) => {
+    const { url, secret, agency_code } = request.body as { url: string; secret: string; agency_code?: string };
+    const agencyId = agency_code ? (await db.selectFrom("agency").select("id").where("code", "=", agency_code).executeTakeFirstOrThrow()).id : undefined;
+    const id = await createWebhookSubscription(db, url, secret, agencyId);
+    return reply.code(201).send({ subscription_id: id });
+  });
+
+  app.post("/internal/webhooks/deliver-pending", async (_request, reply) => {
+    const result = await deliverPendingWebhooks(db, clock);
+    return reply.code(200).send({ attempted: result.attempted, delivered: result.delivered });
+  });
+
+  app.post("/admin/v1/webhooks/:subscriptionId/replay", async (request, reply) => {
+    const { subscriptionId } = request.params as { subscriptionId: string };
+    const { from, to } = request.query as { from: string; to: string };
+    const count = await replayWebhooks(db, subscriptionId, Number(from), Number(to), clock);
+    return reply.code(200).send({ requeued_count: count });
+  });
+
+  // --- Phase 6: notifications (§16.3) ---
+
+  app.post("/internal/notifications/send", async (request, reply) => {
+    const body = request.body as { payer_reference?: string; assessment_psid?: string; event_type: string; channel: "SMS" | "EMAIL" | "PUSH" | "LETTER"; local_hour: number };
+    const assessment = body.assessment_psid ? await db.selectFrom("assessment").select(["id", "payer_id"]).where("psid", "=", body.assessment_psid).executeTakeFirst() : undefined;
+    const result = await sendNotification(db, { payerId: assessment?.payer_id ?? null, assessmentId: assessment?.id ?? null, eventType: body.event_type as never, channel: body.channel, localHour: body.local_hour }, clock);
+    return reply.code(200).send({ outcome: result.outcome, log_id: result.logId });
   });
 
   return app;

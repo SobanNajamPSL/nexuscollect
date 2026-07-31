@@ -535,6 +535,42 @@ export interface BulkBatchRowTable {
   error_code: string | null;
 }
 
+export interface WebhookSubscriptionTable {
+  id: Generated<string>;
+  agency_id: string | null;
+  url: string;
+  secret_current: string;
+  secret_previous: string | null;
+  status: Generated<"ACTIVE" | "SUSPENDED">;
+  consecutive_failures: Generated<number>;
+  created_at: GeneratedTimestamp;
+}
+
+export interface WebhookDeliveryTable {
+  id: Generated<string>;
+  subscription_id: string;
+  event_id: string;
+  attempt_no: Generated<number>;
+  status: Generated<"PENDING" | "DELIVERED" | "FAILED" | "DEAD_LETTERED">;
+  next_attempt_at: Timestamp;
+  last_response_code: number | null;
+  last_error: string | null;
+  delivered_at: Timestamp | null;
+  created_at: GeneratedTimestamp;
+}
+
+export interface NotificationLogTable {
+  id: Generated<string>;
+  payer_id: string | null;
+  assessment_id: string | null;
+  event_type: string;
+  channel: "SMS" | "EMAIL" | "PUSH" | "LETTER";
+  template_version: string;
+  status: Generated<"SENT" | "SUPPRESSED_QUIET_HOURS" | "SUPPRESSED_CAP_REACHED" | "FAILED">;
+  suppressed_reason: string | null;
+  sent_at: GeneratedTimestamp;
+}
+
 export interface SwitchPendingReversalTable {
   id: Generated<string>;
   acquirer_id: string;
@@ -773,5 +809,8 @@ export interface Database {
   wallet_account: WalletAccountTable;
   bulk_batch: BulkBatchTable;
   bulk_batch_row: BulkBatchRowTable;
+  webhook_subscription: WebhookSubscriptionTable;
+  webhook_delivery: WebhookDeliveryTable;
+  notification_log: NotificationLogTable;
   schema_migrations: SchemaMigrationsTable;
 }
