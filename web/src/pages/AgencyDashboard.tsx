@@ -62,9 +62,9 @@ export default function AgencyDashboard() {
               <div className="text-2xl font-bold">PKR {formatPKR(data.total_settled_minor)}</div>
               <div className="text-xs text-gov-ink/60">Settled</div>
             </div>
-            <div className="card p-4 text-center opacity-60">
+            <div className="card p-4 text-center">
               <div className="text-2xl font-bold">{data.total_swept_minor === null ? "—" : `PKR ${formatPKR(data.total_swept_minor)}`}</div>
-              <div className="text-xs text-gov-ink/60">Swept (Phase 5 — not yet implemented)</div>
+              <div className="text-xs text-gov-ink/60">Swept to treasury</div>
             </div>
           </div>
 

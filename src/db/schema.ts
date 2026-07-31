@@ -286,6 +286,7 @@ export interface PaymentAllocationTable {
   reversal_reason: string | null;
   applied_by_user_id: string | null;
   approval_id: string | null;
+  seq: Generated<number>;
 }
 
 export interface InstrumentTable {
@@ -365,6 +366,77 @@ export interface ReceiptTable {
   business_date: Dated;
   status: Generated<"VALID" | "VOIDED" | "REFUNDED">;
   issued_at: GeneratedTimestamp;
+}
+
+export interface SettlementCycleTable {
+  id: Generated<string>;
+  rail: string;
+  business_date: Dated;
+  cycle_no: number;
+  window_open_at: Timestamp | null;
+  cutoff_at: Timestamp | null;
+  status: Generated<"OPEN" | "CUT_OFF" | "NETTING" | "SETTLED" | "FAILED">;
+  gross_in_minor: Generated<bigint>;
+  gross_out_minor: Generated<bigint>;
+  net_minor: Generated<bigint>;
+  participant_position: JSONColumnType<Jsonb> | null;
+  rail_settlement_ref: string | null;
+  settled_at: Timestamp | null;
+}
+
+export interface ScrollTable {
+  id: Generated<string>;
+  agency_id: string;
+  business_date: Dated;
+  scroll_reference: string;
+  sequence_no: number;
+  format_version: Generated<string>;
+  record_count: number;
+  control_total_minor: bigint;
+  detail_sha256: string;
+  generated_at: Timestamp;
+  status: Generated<"GENERATED" | "TRANSMITTED" | "ACKNOWLEDGED" | "REJECTED">;
+  transmitted_at: Timestamp | null;
+  acknowledged_at: Timestamp | null;
+  ack_status: string | null;
+  supersedes_scroll_id: string | null;
+}
+
+export interface ScrollLineTable {
+  id: Generated<string>;
+  scroll_id: string;
+  line_no: number;
+  revenue_head_code: string;
+  psid: string;
+  payer_name: string;
+  payer_id_masked: string | null;
+  tax_period: string | null;
+  amount_minor: bigint;
+  payment_reference: string;
+  receipt_no: string | null;
+  channel: string;
+  rail: string;
+  value_date: Dated;
+  instrument_type: string | null;
+  instrument_no_or_branch: string | null;
+}
+
+export interface AccountingPeriodTable {
+  id: Generated<string>;
+  period_start: Dated;
+  period_end: Dated;
+  status: Generated<"OPEN" | "CLOSED">;
+  closed_at: Timestamp | null;
+  closed_by: string | null;
+}
+
+export interface PeriodAgencySignoffTable {
+  id: Generated<string>;
+  period_id: string;
+  agency_id: string;
+  signed_off_by: string;
+  signed_off_at: Timestamp;
+  ip_address: string | null;
 }
 
 export interface SwitchPendingReversalTable {
@@ -592,5 +664,10 @@ export interface Database {
   audit_log: AuditLogTable;
   outbox_event: OutboxEventTable;
   switch_pending_reversal: SwitchPendingReversalTable;
+  settlement_cycle: SettlementCycleTable;
+  scroll: ScrollTable;
+  scroll_line: ScrollLineTable;
+  accounting_period: AccountingPeriodTable;
+  period_agency_signoff: PeriodAgencySignoffTable;
   schema_migrations: SchemaMigrationsTable;
 }

@@ -50,10 +50,14 @@ export interface AllocationIntegrityResult {
 }
 
 /** §10.8: "For every payment in a live state (CONFIRMED, PARTIALLY_REVERSED):
- * Σ applied allocations + unapplied = gross." */
+ * Σ applied allocations + unapplied = gross." This is a collection-side
+ * invariant — an `OUTBOUND` payment (Phase 4's treasury sweep) is money
+ * LEAVING the platform against an already-applied allocation, not a fresh
+ * collection to be allocated, so it is out of scope for this check by
+ * definition, the same way REVERSED/UNCERTAIN are excluded by definition. */
 export async function checkAllocationIntegrity(db: Kysely<Database>): Promise<AllocationIntegrityResult> {
   const excludedStatuses = ["REVERSED", "UNCERTAIN"] as const;
-  const payments = await db.selectFrom("payment").select(["id", "payment_reference", "gross_amount_minor", "unapplied_amount_minor"]).where("status", "in", ["CONFIRMED", "PARTIALLY_REVERSED"]).execute();
+  const payments = await db.selectFrom("payment").select(["id", "payment_reference", "gross_amount_minor", "unapplied_amount_minor"]).where("status", "in", ["CONFIRMED", "PARTIALLY_REVERSED"]).where("direction", "=", "INBOUND").execute();
 
   const breaks: AllocationIntegrityBreak[] = [];
   for (const payment of payments) {
@@ -100,9 +104,10 @@ export interface LedgerVsSubledgerResult {
 }
 
 /** §10.8: "2010 (Agency Payable) per agency = Σ unswept allocations per
- * agency." No sweep mechanism exists yet (Phase 5's treasury slice) — every
- * currently-APPLIED allocation is "unswept" in this build, so the subledger
- * side is simply the full applied-allocation total per agency. */
+ * agency." Phase 4 built a real sweep (`modules/settlement.runSweep`), so
+ * "unswept" is now a real subtraction — Σ applied allocations minus Σ what's
+ * actually been swept out (the `OUTBOUND` payments the sweep itself posts),
+ * matching exactly what the T18 journal entry already debited out of 2010. */
 export async function checkLedgerVsSubledger(db: Kysely<Database>): Promise<LedgerVsSubledgerResult> {
   const agencyAccounts = await db.selectFrom("ledger_account").select(["code", "agency_id"]).where("code", "like", "2010-%").execute();
   const breaks: LedgerVsSubledgerBreak[] = [];
@@ -121,7 +126,18 @@ export async function checkLedgerVsSubledger(db: Kysely<Database>): Promise<Ledg
       .where("assessment.agency_id", "=", account.agency_id)
       .where("payment_allocation.status", "=", "APPLIED")
       .execute();
-    const subledgerBalanceMinor = allocations.reduce((s, a) => s + a.amount_minor, 0n);
+    const appliedTotal = allocations.reduce((s, a) => s + a.amount_minor, 0n);
+
+    const swept = await db
+      .selectFrom("payment")
+      .select("gross_amount_minor")
+      .where("agency_id", "=", account.agency_id)
+      .where("direction", "=", "OUTBOUND")
+      .where("status", "=", "CONFIRMED")
+      .execute();
+    const sweptTotal = swept.reduce((s, p) => s + p.gross_amount_minor, 0n);
+
+    const subledgerBalanceMinor = appliedTotal - sweptTotal;
 
     if (ledgerBalanceMinor !== subledgerBalanceMinor) {
       breaks.push({ agencyCode: agency.code, ledgerBalanceMinor, subledgerBalanceMinor, differenceMinor: ledgerBalanceMinor - subledgerBalanceMinor });

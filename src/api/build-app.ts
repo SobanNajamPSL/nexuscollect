@@ -30,6 +30,7 @@ import { resetDemoData } from "../loader/reset.js";
 import { DemoClock } from "../platform/clock/index.js";
 import { billInquiry, billPayment, billPaymentReversal, billPaymentAdvice, SwitchInquiryTokenInvalidError } from "../adapters/switch/index.js";
 import { markSent, markDelivered, markPresented, acceptRtp, declineRtp, cancelRtp, fulfillRtpWithPayment, expireDueRequests, IllegalRtpTransition } from "../modules/rtp/index.js";
+import { generateScroll, runSweep, closePeriod, runPreCloseChecks, recordAgencySignoff, recordScrollAck, PeriodCloseBlockedError, PeriodAlreadyClosedError } from "../modules/settlement/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -738,13 +739,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       .groupBy("status")
       .execute();
 
+    // §13.1: confirmed/settled/swept are three genuinely separate figures.
+    // Swept is now real (Phase 4's runSweep posts an OUTBOUND payment per
+    // agency/business-date) — Σ those, not a fabricated placeholder.
+    const sweptRow = await db
+      .selectFrom("payment")
+      .select(({ fn }) => fn.sum<bigint>("gross_amount_minor").as("total"))
+      .where("agency_id", "=", agency.id)
+      .where("direction", "=", "OUTBOUND")
+      .where("status", "=", "CONFIRMED")
+      .executeTakeFirst();
+
     return reply.code(200).send({
       agency_code: agency.code,
       agency_name: agency.name,
       head_wise: rows.map((r) => ({ head_code: r.head_code, head_name: r.head_name, allocated_minor: toWireMinor(BigInt(r.allocated_minor)) })),
       total_confirmed_minor: toWireMinor(rows.reduce((s, r) => s + BigInt(r.allocated_minor), 0n)),
       total_settled_minor: toWireMinor(rows.reduce((s, r) => s + BigInt(r.allocated_minor), 0n)), // same real figure — allocation IS the settlement of that portion
-      total_swept_minor: null, // Phase 5 (treasury sweep) — not implemented; disclosed as absent, not fabricated
+      total_swept_minor: toWireMinor(BigInt(sweptRow?.total ?? 0n)),
       assessment_status_counts: statusCounts.map((s) => ({ status: s.status, count: Number(s.count), balance_total_minor: toWireMinor(BigInt(s.balance_total ?? 0n)) })),
     });
   });
@@ -840,6 +852,58 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.post("/internal/rtp/expire-due", async (_request, reply) => {
     const expired = await expireDueRequests(db, clock);
     return reply.code(200).send({ expired_count: expired.length, expired_references: expired });
+  });
+
+  // --- Phase 4: settlement, treasury sweep, scroll, period close (§13, Prompt 5) ---
+
+  app.post("/internal/settlement/:agencyCode/sweep", async (request, reply) => {
+    const { agencyCode } = request.params as { agencyCode: string };
+    const { business_date } = request.body as { business_date: string };
+    const result = await runSweep(db, agencyCode, business_date, clock);
+    return reply.code(200).send({ swept_amount_minor: toWireMinor(result.sweptAmountMinor), scroll_reference: result.scroll.scrollReference, record_count: result.scroll.recordCount });
+  });
+
+  app.post("/internal/settlement/:agencyCode/scroll", async (request, reply) => {
+    const { agencyCode } = request.params as { agencyCode: string };
+    const { business_date } = request.body as { business_date: string };
+    const scroll = await generateScroll(db, agencyCode, business_date, clock);
+    return reply.code(200).send({ scroll_reference: scroll.scrollReference, record_count: scroll.recordCount, control_total_minor: toWireMinor(scroll.controlTotalMinor), detail_sha256: scroll.detailSha256, full_text: scroll.fullText });
+  });
+
+  app.post("/internal/settlement/scroll/:scrollId/ack", async (request, reply) => {
+    const { scrollId } = request.params as { scrollId: string };
+    const { ack_status } = request.body as { ack_status: "ACCEPTED" | "REJECTED" };
+    await recordScrollAck(db, scrollId, ack_status, clock);
+    return reply.code(200).send({ acked: true });
+  });
+
+  app.get("/internal/settlement/pre-close-checks", async (request, reply) => {
+    const { period_start, period_end } = request.query as { period_start: string; period_end: string };
+    const result = await runPreCloseChecks(db, period_start, period_end);
+    return reply.code(200).send(result);
+  });
+
+  app.post("/internal/settlement/period-close", async (request, reply) => {
+    const { period_start, period_end, closed_by } = request.body as { period_start: string; period_end: string; closed_by: string };
+    try {
+      const result = await closePeriod(db, period_start, period_end, closed_by, clock);
+      return reply.code(200).send({ period_id: result.periodId, status: "CLOSED" });
+    } catch (err) {
+      if (err instanceof PeriodCloseBlockedError) {
+        return reply.code(409).send({ type: "https://errors.nexuscollect.example/PERIOD_CLOSE_BLOCKED", title: "Period close blocked", status: 409, code: "PERIOD_CLOSE_BLOCKED", detail: err.message, failures: err.failures, retryable: false });
+      }
+      if (err instanceof PeriodAlreadyClosedError) {
+        return reply.code(409).send({ type: "https://errors.nexuscollect.example/PERIOD_ALREADY_CLOSED", title: "Period already closed", status: 409, code: "PERIOD_ALREADY_CLOSED", detail: err.message, retryable: false });
+      }
+      throw err;
+    }
+  });
+
+  app.post("/internal/settlement/period/:periodId/signoff", async (request, reply) => {
+    const { periodId } = request.params as { periodId: string };
+    const { agency_code, signed_off_by } = request.body as { agency_code: string; signed_off_by: string };
+    await recordAgencySignoff(db, periodId, agency_code, signed_off_by, request.ip, clock);
+    return reply.code(200).send({ signed_off: true });
   });
 
   return app;
