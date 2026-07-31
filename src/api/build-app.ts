@@ -42,6 +42,7 @@ import { getSignedReceiptBundle } from "../modules/evidence/receipt.js";
 import { verifyReceiptSignature, getPublicKeyPem } from "../platform/receipt-signing/index.js";
 import { deliverPendingWebhooks, createWebhookSubscription, replayWebhooks } from "../modules/webhook/index.js";
 import { sendNotification } from "../modules/notification/index.js";
+import * as reports from "../modules/reports/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -1063,6 +1064,54 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const assessment = body.assessment_psid ? await db.selectFrom("assessment").select(["id", "payer_id"]).where("psid", "=", body.assessment_psid).executeTakeFirst() : undefined;
     const result = await sendNotification(db, { payerId: assessment?.payer_id ?? null, assessmentId: assessment?.id ?? null, eventType: body.event_type as never, channel: body.channel, localHour: body.local_hour }, clock);
     return reply.code(200).send({ outcome: result.outcome, log_id: result.logId });
+  });
+
+  // --- Phase 6: reports R01-R18 (§21.1) ---
+
+  // Bigint amounts appear throughout report results — this walks the result
+  // tree once and converts them via toWireMinor, the same guarded conversion
+  // every other route already uses per-field.
+  const serializeReport = (value: unknown): unknown => {
+    if (typeof value === "bigint") return toWireMinor(value);
+    if (Array.isArray(value)) return value.map(serializeReport);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, serializeReport(v)]));
+    }
+    return value;
+  };
+
+  app.get("/internal/reports/r01", async (request, reply) => reply.code(200).send(serializeReport(await reports.r01DailyCollectionSummary(db, (request.query as { business_date: string }).business_date))));
+  app.get("/internal/reports/r02", async (request, reply) => {
+    const q = request.query as { period_start: string; period_end: string; agency_code?: string };
+    return reply.code(200).send(serializeReport(await reports.r02HeadWiseStatement(db, q.period_start, q.period_end, q.agency_code)));
+  });
+  app.get("/internal/reports/r03", async (request, reply) => reply.code(200).send(serializeReport(await reports.r03ReconciliationCertificate(db, (request.query as { business_date: string }).business_date))));
+  app.get("/internal/reports/r04", async (request, reply) => reply.code(200).send(serializeReport(await reports.r04BreakRegisterAgeing(db, (request.query as { as_of_date: string }).as_of_date))));
+  app.get("/internal/reports/r05", async (request, reply) => reply.code(200).send(serializeReport(await reports.r05SettlementSweepReport(db, (request.query as { business_date: string }).business_date))));
+  app.get("/internal/reports/r06", async (request, reply) => reply.code(200).send(serializeReport(await reports.r06UnappliedReceiptsAgeing(db, (request.query as { as_of_date: string }).as_of_date))));
+  app.get("/internal/reports/r07", async (request, reply) => reply.code(200).send(serializeReport(await reports.r07OutstandingAssessmentsAgeing(db, (request.query as { as_of_date: string }).as_of_date))));
+  app.get("/internal/reports/r08", async (_request, reply) => reply.code(200).send(serializeReport(await reports.r08RtpFunnel(db))));
+  app.get("/internal/reports/r09", async (_request, reply) => reply.code(200).send(serializeReport(await reports.r09ChannelPerformance(db))));
+  app.get("/internal/reports/r10", async (request, reply) => {
+    const q = request.query as { period_start: string; period_end: string };
+    return reply.code(200).send(serializeReport(await reports.r10FeeRevenueStatement(db, q.period_start, q.period_end)));
+  });
+  app.get("/internal/reports/r11", async (request, reply) => {
+    const q = request.query as { period_start: string; period_end: string };
+    return reply.code(200).send(serializeReport(await reports.r11RefundsAndReversals(db, q.period_start, q.period_end)));
+  });
+  app.get("/internal/reports/r12", async (_request, reply) => reply.code(200).send(serializeReport(await reports.r12ChequePerformance(db))));
+  app.get("/internal/reports/r13", async (_request, reply) => reply.code(200).send(serializeReport(await reports.r13ControlPack(db))));
+  app.get("/internal/reports/r14", async (request, reply) => {
+    const q = request.query as { agency_code: string; period_start: string; period_end: string };
+    return reply.code(200).send(serializeReport(await reports.r14PeriodStatementPerAgency(db, q.agency_code, q.period_start, q.period_end)));
+  });
+  app.get("/internal/reports/r15", async (_request, reply) => reply.code(200).send(reports.r15SlaAvailability()));
+  app.get("/internal/reports/r16", async (_request, reply) => reply.code(200).send(serializeReport(await reports.r16PayerExperience(db))));
+  app.get("/internal/reports/r17", async (_request, reply) => reply.code(200).send(reports.r17RegulatoryReturn()));
+  app.get("/internal/reports/r18", async (request, reply) => {
+    const q = request.query as { agency_code: string; fiscal_year_start: string; fiscal_year_end: string };
+    return reply.code(200).send(await reports.r18FiscalYearCertificate(db, q.agency_code, q.fiscal_year_start, q.fiscal_year_end, clock));
   });
 
   return app;
