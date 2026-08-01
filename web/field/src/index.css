@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Field collection — a bank counter or a shop, not an office.
+ *
+ * Two devices share this portal: a teller's workstation and an agent's cheap
+ * Android phone. Both are used standing up, often in poor light, frequently in a
+ * hurry with someone waiting. So: maximum contrast, very large touch targets,
+ * short lines, and amounts big enough to read at arm's length. Nothing subtle,
+ * nothing that rewards careful inspection.
+ */
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+}
+
+@layer components {
+  .slab {
+    @apply bg-fd-panel border-2 border-fd-rule rounded-lg;
+  }
+  .slab-head {
+    @apply px-4 py-3 border-b-2 border-fd-rule bg-fd-panelAlt font-bold text-sm uppercase tracking-wider;
+  }
+
+  /* Deliberately oversized — hit with a thumb, or in a hurry. */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg bg-fd-primary px-6 py-4
+           text-white font-bold text-lg hover:bg-fd-primaryDark
+           disabled:opacity-40 disabled:cursor-not-allowed transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border-2 border-fd-ink bg-white px-6 py-4
+           text-fd-ink font-bold text-lg hover:bg-fd-panelAlt disabled:opacity-40 transition-colors;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-lg border-2 border-fd-bad bg-white px-6 py-4
+           text-fd-bad font-bold text-lg hover:bg-red-50 disabled:opacity-40 transition-colors;
+  }
+
+  .input {
+    @apply border-2 border-fd-rule bg-white rounded-lg px-4 py-4 w-full text-xl text-fd-ink
+           focus:outline-none focus:border-fd-primary focus:ring-2 focus:ring-fd-primary/30;
+  }
+  .label {
+    @apply block text-sm font-bold uppercase tracking-wider text-fd-inkDim mb-1.5;
+  }
+
+  /* A figure read at arm's length. */
+  .big-amount {
+    @apply font-bold tabular-nums text-4xl leading-none;
+  }
+  .mid-amount {
+    @apply font-bold tabular-nums text-2xl leading-none;
+  }
+
+  .badge {
+    @apply inline-block px-3 py-1 rounded text-sm font-bold uppercase tracking-wide;
+  }
+  .badge-good {
+    @apply bg-fd-good/10 text-fd-good;
+  }
+  .badge-bad {
+    @apply bg-fd-bad/10 text-fd-bad;
+  }
+  .badge-neutral {
+    @apply bg-fd-ink/[0.07] text-fd-inkDim;
+  }
+}

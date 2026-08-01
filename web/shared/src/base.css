@@ -1,0 +1,53 @@
+/**
+ * Shared layer: only what must look identical in every portal — the
+ * demonstration harness, and two typographic primitives.
+ *
+ * Written as literal CSS rather than Tailwind @apply/@layer on purpose: this
+ * file is imported by four separate Vite apps, and @layer only resolves against
+ * @tailwind directives in the *same* stylesheet. Plain CSS composes safely
+ * wherever it's pulled in.
+ *
+ * Everything else — cards, buttons, inputs, tables — each portal defines for
+ * itself. They are four products for four audiences, and should not look like
+ * one admin template wearing different colours.
+ */
+
+/* --- Demonstration harness chrome (identical in every portal) --- */
+
+.harness-btn {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #2b3854;
+  background: #161f33;
+  color: #c9d4e8;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.harness-btn:hover:not(:disabled) {
+  border-color: #7c8ba8;
+}
+.harness-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.harness-btn-danger {
+  border-color: rgba(212, 84, 74, 0.5);
+  color: #d4544a;
+}
+.harness-btn-danger:hover:not(:disabled) {
+  border-color: #d4544a;
+}
+
+/* --- Typographic primitives --- */
+
+/* Money aligns on the decimal in every table, in every portal — but that's
+   Tailwind's own `tabular-nums` utility, so there's nothing to define here.
+   Only genuinely non-Tailwind rules belong in this file. */
+
+.urdu {
+  font-family: "Noto Nastaliq Urdu", serif;
+  direction: rtl;
+  line-height: 2.2;
+}

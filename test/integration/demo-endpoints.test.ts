@@ -72,5 +72,18 @@ describe("Prompt 3/4 (scoped): recon route, instrument return route, demo contro
     const roles = await testDb.db.selectFrom("user_role").selectAll().execute();
     expect(roles.length).toBe(10);
     expect(roles.find((r) => r.user_id === "00000000-0000-4000-9000-000000000001")?.role_code).toBe("AGENCY_ADMIN");
+
+    // The two agency-staff personas must come back linked to their tenant, not
+    // with a null agency_id: the agency portal scopes every request to the
+    // acting user's own agency, so a reset that drops the link would silently
+    // leave that portal unable to load anything. `agency` is truncated and
+    // reloaded during the reset, so this link can only be restored afterwards.
+    const agencyStaff = await testDb.db
+      .selectFrom("platform_user")
+      .innerJoin("agency", "agency.id", "platform_user.agency_id")
+      .select(["platform_user.id", "agency.code"])
+      .execute();
+    expect(agencyStaff.length).toBe(2);
+    expect(agencyStaff.every((u) => u.code === "ETPB")).toBe(true);
   });
 });

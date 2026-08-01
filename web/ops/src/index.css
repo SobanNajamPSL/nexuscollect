@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Operations console — dense and functional.
+ *
+ * The audience is internal staff who live in this tool all day, scanning queues
+ * and tracing references. So: smaller type, tight rows, visible grid lines,
+ * monospace for every identifier, and no decorative whitespace. Closer to a
+ * dealing desk than a website. Light rather than dark — this is a government
+ * back office, not a night-shift NOC.
+ */
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+}
+
+@layer components {
+  .panel {
+    @apply bg-op-panel border border-op-rule rounded;
+  }
+  .panel-head {
+    @apply px-3 py-1.5 border-b border-op-rule bg-op-panelAlt font-semibold text-[11px] uppercase tracking-wider text-op-inkDim;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center rounded bg-op-primary px-3 py-1.5 text-white font-medium text-[13px]
+           hover:bg-op-primaryDark disabled:opacity-40 disabled:cursor-not-allowed transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded border border-op-rule bg-white px-3 py-1.5
+           text-op-ink font-medium text-[13px] hover:bg-op-panelAlt disabled:opacity-40 transition-colors;
+  }
+  .btn-xs {
+    @apply px-2 py-0.5 text-[11px];
+  }
+
+  .input,
+  .select {
+    @apply border border-op-rule bg-white rounded px-2 py-1.5 w-full text-op-ink text-[13px]
+           focus:outline-none focus:ring-1 focus:ring-op-accent focus:border-op-accent;
+  }
+  .label {
+    @apply block text-[10px] font-semibold uppercase tracking-wider text-op-inkDim mb-0.5;
+  }
+
+  /* Dense data grid. Every row is scannable; nothing is spacious. */
+  .grid-table {
+    @apply w-full text-[13px] border-collapse;
+  }
+  .grid-table thead th {
+    @apply text-left font-semibold text-[10px] uppercase tracking-wider text-op-inkDim
+           bg-op-panelAlt border-b border-op-rule px-2.5 py-1.5 sticky top-0;
+  }
+  .grid-table tbody td {
+    @apply px-2.5 py-1 border-b border-op-rule/50 align-top;
+  }
+  .grid-table tbody tr:hover {
+    @apply bg-op-accent/[0.04];
+  }
+  .grid-table .num {
+    @apply text-right tabular-nums;
+  }
+
+  /* Identifiers are monospace everywhere — they get compared by eye constantly. */
+  .ref {
+    @apply font-mono text-[12px];
+  }
+
+  .badge {
+    @apply inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide;
+  }
+  .badge-good {
+    @apply bg-op-good/10 text-op-good;
+  }
+  .badge-warn {
+    @apply bg-op-warn/10 text-op-warn;
+  }
+  .badge-bad {
+    @apply bg-op-bad/10 text-op-bad;
+  }
+  .badge-neutral {
+    @apply bg-op-ink/[0.07] text-op-inkDim;
+  }
+
+  /* A single number with a label, for dashboard strips. */
+  .metric {
+    @apply px-3 py-2 border border-op-rule rounded bg-op-panel;
+  }
+  .metric-label {
+    @apply text-[10px] uppercase tracking-wider text-op-inkDim;
+  }
+  .metric-value {
+    @apply text-xl font-semibold tabular-nums leading-tight;
+  }
+}

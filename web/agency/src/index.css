@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Agency portal — institutional.
+ *
+ * The audience is a government finance officer, and the artefacts they care
+ * about are statements, scrolls and certificates. So this reads as a printed
+ * document rather than a web app: warm paper ground, serif headings, hairline
+ * rules instead of shadows, square-ish corners, restrained colour.
+ */
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+h1,
+h2,
+h3,
+.doc-title {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.01em;
+}
+
+@layer components {
+  /* A sheet of paper, not a floating card. */
+  .sheet {
+    @apply bg-ag-panel border border-ag-rule rounded-sm;
+  }
+  .sheet-head {
+    @apply px-4 py-2.5 border-b border-ag-rule bg-ag-panelAlt font-semibold text-[13px] tracking-wide uppercase text-ag-inkDim;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center rounded-sm bg-ag-primary px-4 py-2 text-white font-medium
+           hover:bg-ag-primaryDark disabled:opacity-40 disabled:cursor-not-allowed transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-sm border border-ag-rule bg-ag-panel px-4 py-2
+           text-ag-ink font-medium hover:bg-ag-panelAlt disabled:opacity-40 transition-colors;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  .input,
+  .select {
+    @apply border border-ag-rule bg-white rounded-sm px-3 py-2 w-full text-ag-ink
+           focus:outline-none focus:ring-1 focus:ring-ag-primary focus:border-ag-primary;
+  }
+  .label {
+    @apply block text-[11px] font-semibold uppercase tracking-wider text-ag-inkDim mb-1;
+  }
+
+  /* Statement tables: ruled, tabular figures, right-aligned money. */
+  .statement {
+    @apply w-full text-sm;
+  }
+  .statement thead th {
+    @apply text-left font-semibold text-[11px] uppercase tracking-wider text-ag-inkDim
+           border-b border-ag-rule px-4 py-2;
+  }
+  .statement tbody td {
+    @apply px-4 py-2 border-b border-ag-rule/60;
+  }
+  .statement tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .statement .num {
+    @apply text-right tabular-nums;
+  }
+  .statement tfoot td {
+    @apply px-4 py-2 border-t-2 border-ag-ink/30 font-semibold;
+  }
+
+  .badge {
+    @apply inline-block px-2 py-0.5 rounded-sm text-[11px] font-semibold uppercase tracking-wide;
+  }
+  .badge-good {
+    @apply bg-ag-good/10 text-ag-good;
+  }
+  .badge-warn {
+    @apply bg-ag-warn/10 text-ag-warn;
+  }
+  .badge-bad {
+    @apply bg-ag-bad/10 text-ag-bad;
+  }
+  .badge-neutral {
+    @apply bg-ag-ink/[0.06] text-ag-inkDim;
+  }
+
+  /* A headline figure on a statement — large, serif, tabular. */
+  .figure {
+    @apply font-semibold tabular-nums;
+    font-family: Georgia, "Times New Roman", serif;
+  }
+}

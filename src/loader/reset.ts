@@ -87,4 +87,13 @@ export async function resetDemoData(db: Kysely<Database>, demoDataDir: string, c
   if (clock instanceof DemoClock) clock.reset();
 
   await loadDemoData(db, demoDataDir, clock);
+
+  // Only now can the two agency-staff personas be linked to their tenant —
+  // `agency` was truncated above and is repopulated by loadDemoData, so the FK
+  // target doesn't exist until this point. Mirrors migration 0029.
+  await db
+    .updateTable("platform_user")
+    .set({ agency_id: (await db.selectFrom("agency").select("id").where("code", "=", "ETPB").executeTakeFirstOrThrow()).id })
+    .where("id", "in", ["00000000-0000-4000-9000-000000000001", "00000000-0000-4000-9000-000000000002"])
+    .execute();
 }

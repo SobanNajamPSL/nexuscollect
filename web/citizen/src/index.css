@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Citizen portal — phone-first public service.
+ *
+ * One decision per screen, large touch targets, generous type. This is the only
+ * surface a member of the public ever sees, and it's reached on a phone while
+ * standing somewhere, so nothing here is dense or clever.
+ *
+ * Scope is deliberately narrow (see the manual): enough to initiate or complete
+ * a payment and produce a receipt. The receipt itself is *not* thin — it's the
+ * artefact that ends up in an auditor's file.
+ */
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply bg-cz-panel border border-cz-rule rounded-xl;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center w-full rounded-xl bg-cz-primary px-5 py-3.5
+           text-white font-semibold text-base hover:bg-cz-primaryDark
+           disabled:opacity-40 disabled:cursor-not-allowed transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center w-full rounded-xl border border-cz-rule bg-white
+           px-5 py-3.5 text-cz-ink font-semibold text-base hover:bg-cz-bg
+           disabled:opacity-40 transition-colors;
+  }
+  .btn-inline {
+    @apply w-auto px-4 py-2 text-sm rounded-lg;
+  }
+
+  .input,
+  .select {
+    @apply border border-cz-rule bg-white rounded-xl px-4 py-3.5 w-full text-base text-cz-ink
+           focus:outline-none focus:ring-2 focus:ring-cz-primary/40 focus:border-cz-primary;
+  }
+  .label {
+    @apply block text-sm font-medium text-cz-inkDim mb-1.5;
+  }
+
+  /* One payable, as a tappable row. */
+  .payable {
+    @apply border border-cz-rule rounded-xl p-4 bg-white;
+  }
+
+  .amount {
+    @apply font-semibold tabular-nums;
+  }
+
+  .badge {
+    @apply inline-block px-2.5 py-1 rounded-full text-xs font-semibold;
+  }
+  .badge-due {
+    @apply bg-amber-50 text-amber-800;
+  }
+  .badge-overdue {
+    @apply bg-red-50 text-red-800;
+  }
+  .badge-paid {
+    @apply bg-emerald-50 text-emerald-800;
+  }
+  .badge-info {
+    @apply bg-cz-primary/[0.08] text-cz-primary;
+  }
+
+  /* The phone frame the desktop preview sits inside, so a reviewer sees this
+     for what it is rather than a stretched-out mobile page. */
+  .phone {
+    @apply mx-auto bg-cz-bg min-h-screen;
+    max-width: 420px;
+  }
+}

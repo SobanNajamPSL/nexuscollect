@@ -1554,11 +1554,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   app.get("/internal/users", async (_request, reply) => {
-    const users = await db.selectFrom("platform_user").select(["id", "name"]).orderBy("name").execute();
+    const users = await db
+      .selectFrom("platform_user")
+      .leftJoin("agency", "agency.id", "platform_user.agency_id")
+      .select(["platform_user.id", "platform_user.name", "agency.code as agency_code", "agency.name as agency_name"])
+      .orderBy("platform_user.name")
+      .execute();
     const withRoles = await Promise.all(
       users.map(async (u) => {
         const roles = await db.selectFrom("user_role").select("role_code").where("user_id", "=", u.id).execute();
-        return { id: u.id, name: u.name, roles: roles.map((r) => r.role_code) };
+        return { id: u.id, name: u.name, agency_code: u.agency_code, agency_name: u.agency_name, roles: roles.map((r) => r.role_code) };
       }),
     );
     return reply.code(200).send(withRoles);
