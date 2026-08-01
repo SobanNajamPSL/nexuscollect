@@ -21,7 +21,10 @@ export default function AgencyConfig() {
   const [error, setError] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [makerUserId] = useState(() => crypto.randomUUID());
-  const [checkerUserId] = useState(() => crypto.randomUUID());
+  // Bilal Farooq — the one seeded AGENCY_ADMIN user (migration
+  // 0028_rbac_seed_demo_users.sql) — since the approve route is now
+  // role-gated (Phase 11) and a random UUID has no role assignment.
+  const checkerUserId = "00000000-0000-4000-9000-000000000001";
 
   // Wizard state — mirrors the guided flow in the demo script (reference
   // scheme → amount rule → partial-payment policy → overpayment treatment →
@@ -86,7 +89,7 @@ export default function AgencyConfig() {
     if (!selected) return;
     setError(null);
     try {
-      await api.post(`/internal/products/${productId}/approve`, { checker_user_id: checkerUserId });
+      await api.post(`/internal/products/${productId}/approve`, { checker_user_id: checkerUserId }, { headers: { "x-user-id": checkerUserId } });
       await selectAgency(selected);
     } catch (err) {
       setError((err as Error).message);

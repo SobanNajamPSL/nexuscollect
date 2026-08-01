@@ -57,4 +57,20 @@ describe("Prompt 3/4 (scoped): recon route, instrument return route, demo contro
     expect(after.length).toBe(before.length); // same real dataset reloaded
     expect(clock.now().toISOString()).toBe(DEMO_ANCHOR.toISOString()); // clock reset too
   });
+
+  it("POST /internal/demo/reset preserves the 10 seeded RBAC demo users and their roles (Phase 11)", async () => {
+    // platform_user isn't in BUSINESS_TABLES, but TRUNCATE ... CASCADE on
+    // `agency` (which platform_user.agency_id FK-references) wipes it anyway —
+    // reset.ts must re-seed it, same as it re-seeds ledger_account.
+    await app.inject({ method: "POST", url: "/internal/demo/reset" });
+
+    const users = await testDb.db.selectFrom("platform_user").select(["id", "name"]).execute();
+    expect(users.length).toBe(10);
+    const bilal = users.find((u) => u.id === "00000000-0000-4000-9000-000000000001");
+    expect(bilal?.name).toBe("Bilal Farooq (Agency Admin, ETPB)");
+
+    const roles = await testDb.db.selectFrom("user_role").selectAll().execute();
+    expect(roles.length).toBe(10);
+    expect(roles.find((r) => r.user_id === "00000000-0000-4000-9000-000000000001")?.role_code).toBe("AGENCY_ADMIN");
+  });
 });

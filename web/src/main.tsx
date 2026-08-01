@@ -27,6 +27,7 @@ import Refunds from "./pages/Refunds.js";
 import BulkPayments from "./pages/BulkPayments.js";
 import DisputeConsole from "./pages/DisputeConsole.js";
 import AgentFloat from "./pages/AgentFloat.js";
+import RolesAndPermissions from "./pages/RolesAndPermissions.js";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -57,6 +58,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="ops/bulk-payments" element={<BulkPayments />} />
           <Route path="ops/disputes" element={<DisputeConsole />} />
           <Route path="ops/agent-float" element={<AgentFloat />} />
+          <Route path="ops/roles" element={<RolesAndPermissions />} />
         </Route>
       </Routes>
     </BrowserRouter>

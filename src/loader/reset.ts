@@ -47,6 +47,43 @@ export async function resetDemoData(db: Kysely<Database>, demoDataDir: string, c
     ])
     .execute();
 
+  // Re-seed the 10 named demo platform_users + their role assignments
+  // (migration 0028). platform_user isn't itself in BUSINESS_TABLES — it's
+  // configuration, like agency/role — but TRUNCATE ... CASCADE above wipes it
+  // anyway because platform_user.agency_id FK-references agency, which *is*
+  // truncated; TRUNCATE CASCADE empties the whole referencing table, not just
+  // matching rows. user_role cascades from platform_user in turn.
+  await db
+    .insertInto("platform_user")
+    .values([
+      { id: "00000000-0000-4000-9000-000000000001", name: "Bilal Farooq (Agency Admin, ETPB)" },
+      { id: "00000000-0000-4000-9000-000000000002", name: "Sana Malik (Agency Operator, ETPB)" },
+      { id: "00000000-0000-4000-9000-000000000003", name: "Imran Qureshi (Recon Analyst)" },
+      { id: "00000000-0000-4000-9000-000000000004", name: "Ayesha Riaz (Recon Approver)" },
+      { id: "00000000-0000-4000-9000-000000000005", name: "Usman Tariq (Refund Maker)" },
+      { id: "00000000-0000-4000-9000-000000000006", name: "Farah Sheikh (Refund Approver)" },
+      { id: "00000000-0000-4000-9000-000000000007", name: "Nadia Aslam (Teller)" },
+      { id: "00000000-0000-4000-9000-000000000008", name: "Kamran Butt (Branch Supervisor)" },
+      { id: "00000000-0000-4000-9000-000000000009", name: "Zara Hussain (Support Agent)" },
+      { id: "00000000-0000-4000-9000-000000000010", name: "Tariq Mehmood (Auditor)" },
+    ])
+    .execute();
+  await db
+    .insertInto("user_role")
+    .values([
+      { user_id: "00000000-0000-4000-9000-000000000001", role_code: "AGENCY_ADMIN" },
+      { user_id: "00000000-0000-4000-9000-000000000002", role_code: "AGENCY_OPERATOR" },
+      { user_id: "00000000-0000-4000-9000-000000000003", role_code: "OPS_RECON_ANALYST" },
+      { user_id: "00000000-0000-4000-9000-000000000004", role_code: "OPS_RECON_APPROVER" },
+      { user_id: "00000000-0000-4000-9000-000000000005", role_code: "OPS_REFUND_MAKER" },
+      { user_id: "00000000-0000-4000-9000-000000000006", role_code: "OPS_REFUND_APPROVER" },
+      { user_id: "00000000-0000-4000-9000-000000000007", role_code: "TELLER" },
+      { user_id: "00000000-0000-4000-9000-000000000008", role_code: "BRANCH_SUPERVISOR" },
+      { user_id: "00000000-0000-4000-9000-000000000009", role_code: "SUPPORT_AGENT" },
+      { user_id: "00000000-0000-4000-9000-000000000010", role_code: "AUDITOR" },
+    ])
+    .execute();
+
   if (clock instanceof DemoClock) clock.reset();
 
   await loadDemoData(db, demoDataDir, clock);

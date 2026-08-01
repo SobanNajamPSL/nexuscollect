@@ -17,6 +17,7 @@ import {
 import { mapAssessmentToApi, findCurrentAssessmentIdByPsid } from "../modules/obligation/api-mapper.js";
 import { resolvePayer } from "./payer-lookup.js";
 import { requireInstitutionId } from "./auth-stub.js";
+import { requireRole } from "../platform/rbac/index.js";
 import { handleIdempotently } from "./idempotency-middleware.js";
 import { resolveRequestSchema, resolveResponseSchema, problemSchema } from "./schemas/resolve.js";
 import { createAssessmentRequestSchema, amendAssessmentRequestSchema, cancelAssessmentRequestSchema, assessmentResponseSchema } from "./schemas/assessment.js";
@@ -1451,7 +1452,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return reply.code(201).send(result);
   });
 
-  app.post("/internal/products/:productId/approve", async (request, reply) => {
+  app.post("/internal/products/:productId/approve", { preHandler: requireRole(db, ["AGENCY_ADMIN"]) }, async (request, reply) => {
     const { productId } = request.params as { productId: string };
     const { checker_user_id } = request.body as { checker_user_id: string };
     try {
@@ -1475,6 +1476,22 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(body.allowed_channels !== undefined ? { allowedChannels: body.allowed_channels } : {}),
     }, body.actor_id, clock);
     return reply.code(200).send({ status: "AMENDED" });
+  });
+
+  app.get("/internal/roles", async (_request, reply) => {
+    const rows = await db.selectFrom("role").selectAll().orderBy("code").execute();
+    return reply.code(200).send(rows);
+  });
+
+  app.get("/internal/users", async (_request, reply) => {
+    const users = await db.selectFrom("platform_user").select(["id", "name"]).orderBy("name").execute();
+    const withRoles = await Promise.all(
+      users.map(async (u) => {
+        const roles = await db.selectFrom("user_role").select("role_code").where("user_id", "=", u.id).execute();
+        return { id: u.id, name: u.name, roles: roles.map((r) => r.role_code) };
+      }),
+    );
+    return reply.code(200).send(withRoles);
   });
 
   // Recon run console

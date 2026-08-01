@@ -9,8 +9,8 @@ function randomKey(): string {
   return crypto.randomUUID();
 }
 
-async function request<T>(method: string, path: string, body?: unknown, opts?: { idempotent?: boolean }): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", "x-institution-id": INSTITUTION_ID };
+async function request<T>(method: string, path: string, body?: unknown, opts?: { idempotent?: boolean; headers?: Record<string, string> }): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", "x-institution-id": INSTITUTION_ID, ...opts?.headers };
   if (opts?.idempotent) headers["idempotency-key"] = randomKey();
   const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   const text = await res.text();
@@ -27,7 +27,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: {
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body?: unknown, opts?: { idempotent?: boolean }) => request<T>("POST", path, body, opts ?? { idempotent: true }),
+  post: <T>(path: string, body?: unknown, opts?: { idempotent?: boolean; headers?: Record<string, string> }) => request<T>("POST", path, body, { idempotent: true, ...opts }),
 };
 
 export function formatPKR(minor: number): string {

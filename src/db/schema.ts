@@ -535,6 +535,24 @@ export interface BulkBatchRowTable {
   error_code: string | null;
 }
 
+export interface RoleTable {
+  code: string;
+  name: string;
+  description: string;
+}
+
+export interface PlatformUserTable {
+  id: Generated<string>;
+  name: string;
+  agency_id: string | null;
+  created_at: GeneratedTimestamp;
+}
+
+export interface UserRoleTable {
+  user_id: string;
+  role_code: string;
+}
+
 export interface AgentFloatAccountTable {
   id: Generated<string>;
   agent_code: string;
@@ -832,5 +850,8 @@ export interface Database {
   notification_log: NotificationLogTable;
   agent_float_account: AgentFloatAccountTable;
   agent_float_movement: AgentFloatMovementTable;
+  role: RoleTable;
+  platform_user: PlatformUserTable;
+  user_role: UserRoleTable;
   schema_migrations: SchemaMigrationsTable;
 }
