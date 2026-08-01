@@ -36,6 +36,7 @@ import { validateBulkFile, confirmBulkBatch, BulkBatchNotValidatedError } from "
 import { receiveRecall } from "../modules/recall/index.js";
 import { receiveDispute, assembleEvidenceBundle, resolveDispute } from "../modules/dispute/index.js";
 import { refundDeposit, exitDepositToRevenue } from "../modules/deposit/index.js";
+import { createProduct, approveProduct, amendProduct, SelfApprovalNotAllowedError } from "../modules/product-config/index.js";
 import { createMandate, collectUnderMandate } from "../modules/mandate/index.js";
 import { captureCardPayment } from "../adapters/rails/card/index.js";
 import { captureWalletPayment } from "../adapters/rails/wallet/index.js";
@@ -1385,10 +1386,73 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.get("/internal/products", async (request, reply) => {
     const { agency_code } = request.query as { agency_code?: string };
-    let q = db.selectFrom("collection_product").innerJoin("agency", "agency.id", "collection_product.agency_id").select(["agency.code as agency_code", "collection_product.code", "collection_product.category", "collection_product.status", "collection_product.overpay_treatment", "collection_product.allocation_waterfall"]);
+    let q = db.selectFrom("collection_product").innerJoin("agency", "agency.id", "collection_product.agency_id").select(["collection_product.id", "agency.code as agency_code", "collection_product.code", "collection_product.category", "collection_product.status", "collection_product.overpay_treatment", "collection_product.allocation_waterfall"]);
     if (agency_code) q = q.where("agency.code", "=", agency_code);
     const rows = await q.execute();
     return reply.code(200).send(rows);
+  });
+
+  app.get("/internal/reference-schemes", async (request, reply) => {
+    const { agency_code } = request.query as { agency_code?: string };
+    let q = db.selectFrom("reference_scheme").innerJoin("agency", "agency.id", "reference_scheme.agency_id").select(["reference_scheme.id", "reference_scheme.code", "reference_scheme.prefix", "reference_scheme.total_length", "agency.code as agency_code"]);
+    if (agency_code) q = q.where("agency.code", "=", agency_code);
+    const rows = await q.execute();
+    return reply.code(200).send(rows);
+  });
+
+  app.get("/internal/revenue-heads", async (request, reply) => {
+    const { agency_code } = request.query as { agency_code?: string };
+    let q = db.selectFrom("revenue_head").innerJoin("agency", "agency.id", "revenue_head.agency_id").select(["revenue_head.id", "revenue_head.code", "revenue_head.name", "agency.code as agency_code"]);
+    if (agency_code) q = q.where("agency.code", "=", agency_code);
+    const rows = await q.execute();
+    return reply.code(200).send(rows);
+  });
+
+  app.post("/internal/agencies/:agencyCode/products", async (request, reply) => {
+    const { agencyCode } = request.params as { agencyCode: string };
+    const body = request.body as {
+      code: string; name: string; category: "TAX" | "DUTY" | "FINE" | "PENALTY" | "FEE" | "BILL" | "STAMP" | "DEPOSIT" | "MISC";
+      reference_scheme_id: string; amount_rule: "FIXED" | "ASSESSED" | "OPEN" | "MIN_MAX"; allow_partial: boolean;
+      overpay_treatment: "REJECT" | "CREDIT_ON_ACCOUNT" | "AUTO_REFUND" | "ABSORB"; allocation_waterfall: "OLDEST_FIRST" | "PENALTY_FIRST" | "PRINCIPAL_FIRST" | "PRO_RATA" | "EXPLICIT_ONLY";
+      allowed_channels: string[]; allowed_instruments: string[]; instrument_credit_policy: "ON_CLEARING" | "PROVISIONAL_ON_LODGEMENT" | "PROVISIONAL_WITH_GATE_HOLD";
+      fee_bearer: "PAYER" | "AGENCY" | "SPLIT"; default_revenue_head_id: string; service_gating: "NONE" | "BLOCKS_SERVICE" | "RELEASES_GOODS";
+      deposit_refundable: boolean; effective_from: string; actor_id: string;
+    };
+    const agency = await db.selectFrom("agency").select("id").where("code", "=", agencyCode).executeTakeFirstOrThrow();
+    const result = await createProduct(db, {
+      agencyId: agency.id, code: body.code, name: body.name, category: body.category, referenceSchemeId: body.reference_scheme_id,
+      amountRule: body.amount_rule, allowPartial: body.allow_partial, overpayTreatment: body.overpay_treatment, allocationWaterfall: body.allocation_waterfall,
+      allowedChannels: body.allowed_channels, allowedInstruments: body.allowed_instruments, instrumentCreditPolicy: body.instrument_credit_policy,
+      feeBearer: body.fee_bearer, defaultRevenueHeadId: body.default_revenue_head_id, serviceGating: body.service_gating,
+      depositRefundable: body.deposit_refundable, effectiveFrom: body.effective_from, actorId: body.actor_id,
+    }, clock);
+    return reply.code(201).send(result);
+  });
+
+  app.post("/internal/products/:productId/approve", async (request, reply) => {
+    const { productId } = request.params as { productId: string };
+    const { checker_user_id } = request.body as { checker_user_id: string };
+    try {
+      await approveProduct(db, productId, checker_user_id, clock);
+      return reply.code(200).send({ status: "ACTIVE" });
+    } catch (err) {
+      if (err instanceof SelfApprovalNotAllowedError) {
+        return reply.code(err.httpStatus).send({ type: "https://errors.nexuscollect.example/SELF_APPROVAL_NOT_ALLOWED", title: "Self-approval not allowed", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+      }
+      throw err;
+    }
+  });
+
+  app.patch("/internal/products/:productId", async (request, reply) => {
+    const { productId } = request.params as { productId: string };
+    const body = request.body as { allow_partial?: boolean; overpay_treatment?: "REJECT" | "CREDIT_ON_ACCOUNT" | "AUTO_REFUND" | "ABSORB"; allocation_waterfall?: "OLDEST_FIRST" | "PENALTY_FIRST" | "PRINCIPAL_FIRST" | "PRO_RATA" | "EXPLICIT_ONLY"; allowed_channels?: string[]; actor_id: string };
+    await amendProduct(db, productId, {
+      ...(body.allow_partial !== undefined ? { allowPartial: body.allow_partial } : {}),
+      ...(body.overpay_treatment !== undefined ? { overpayTreatment: body.overpay_treatment } : {}),
+      ...(body.allocation_waterfall !== undefined ? { allocationWaterfall: body.allocation_waterfall } : {}),
+      ...(body.allowed_channels !== undefined ? { allowedChannels: body.allowed_channels } : {}),
+    }, body.actor_id, clock);
+    return reply.code(200).send({ status: "AMENDED" });
   });
 
   // Recon run console
