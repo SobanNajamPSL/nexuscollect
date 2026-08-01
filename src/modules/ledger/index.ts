@@ -36,6 +36,19 @@ export interface PostJournalEntryInput {
   lines: readonly JournalLineInput[];
 }
 
+/** §13.6 step 2 / Group D's D3: "posting into a closed period is rejected."
+ * A plain read of `accounting_period` (not an import of `modules/settlement`,
+ * which itself depends on this ledger module — that would cycle) — the
+ * one real guard standing between "period closed" and "still postable". */
+export class PeriodClosedError extends Error {
+  readonly httpStatus = 409;
+  readonly code = "PERIOD_CLOSED";
+  constructor(valueDate: string) {
+    super(`Cannot post a journal entry dated ${valueDate} — its accounting period is CLOSED`);
+    this.name = "PeriodClosedError";
+  }
+}
+
 // Fixed advisory-lock key serialising journal_entry chain appends — same rationale
 // as platform/audit's AUDIT_CHAIN_LOCK_KEY, a different constant so the two chains
 // never contend with each other.
@@ -85,6 +98,15 @@ export async function postJournalEntry(
 ): Promise<{ id: string; entryNo: bigint; replayed: boolean }> {
   const run = async (trx: Transaction<Database>) => {
     await sql`SELECT pg_advisory_xact_lock(${LEDGER_CHAIN_LOCK_KEY})`.execute(trx);
+
+    const closedPeriod = await trx
+      .selectFrom("accounting_period")
+      .select("id")
+      .where("period_start", "<=", input.valueDate)
+      .where("period_end", ">=", input.valueDate)
+      .where("status", "=", "CLOSED")
+      .executeTakeFirst();
+    if (closedPeriod) throw new PeriodClosedError(input.valueDate);
 
     const existing = await trx
       .selectFrom("journal_entry")

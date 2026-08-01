@@ -328,13 +328,21 @@ async function runAllocation(trx: Transaction<Database>, paymentId: string, para
     journalPostings.push({ assessmentId, agencyId: ctx.agencyId, agencyCode: ctx.agencyCode, amountMinor: allocatedTotal });
   }
 
-  for (const posting of journalPostings) {
+  // Each posting here shares one payment's sourceId and (for a single-rail
+  // capture) one eventType — postJournalEntry's idempotency key is
+  // (source_type, source_id, event_type, sequence), so when ONE payment
+  // settles MULTIPLE assessments (e.g. one cheque paying three separate
+  // PSIDs), every posting after the first would silently collide with
+  // sequence's implicit default of 1 and be dropped as a "replay" instead of
+  // actually posting. An explicit per-posting sequence keeps each assessment's
+  // credit genuinely distinct.
+  for (const [i, posting] of journalPostings.entries()) {
     const debitBaseCode = params.rail === "CASH" ? "1010" : params.rail === "CHEQUE_CLEARING" ? "1030" : "1150";
     const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: debitBaseCode, dimensionKey: params.rail, name: "Collection Receivable", accountType: "ASSET", normalBalance: "DR" });
     const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: posting.agencyCode, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: posting.agencyId });
     await postJournalEntry(trx, {
       eventType: params.rail === "CASH" ? "COLLECT_CASH_OTC" : "COLLECT_RAIL_CONFIRMED",
-      sourceType: "payment", sourceId: paymentId, agencyId: posting.agencyId, valueDate: params.valueDate,
+      sourceType: "payment", sourceId: paymentId, sequence: i + 1, agencyId: posting.agencyId, valueDate: params.valueDate,
       lines: [
         { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: posting.amountMinor },
         { seq: 2, accountCode: creditCode, direction: "CR", amountMinor: posting.amountMinor },
@@ -521,19 +529,23 @@ export async function reversePayment(db: Kysely<Database>, paymentId: string, re
 
     if (payment.agency_id && payment.gross_amount_minor > 0n) {
       const agencyCode = (await trx.selectFrom("agency").select("code").where("id", "=", payment.agency_id).executeTakeFirstOrThrow()).code;
+      // Mirror capturePayment's own rail→base-code mapping exactly, so the
+      // reversal credits back the SAME receivable account the capture
+      // originally debited (CASH→1010, CHEQUE_CLEARING→1030, else 1150).
+      const railBaseCode = payment.rail === "CASH" ? "1010" : payment.rail === "CHEQUE_CLEARING" ? "1030" : "1150";
       if (anySwept) {
         // Not a silent undo: 2010 was already relieved by the sweep, so this
         // is a NEW receivable from the agency, not a reversal of the
         // original collection entry.
         const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "2070", dimensionKey: agencyCode, name: "Receivable from Agency (Post-Sweep Recovery)", accountType: "ASSET", normalBalance: "DR", agencyId: payment.agency_id });
-        const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "1150", dimensionKey: payment.rail, name: "Rail Settlement Receivable", accountType: "ASSET", normalBalance: "DR" });
+        const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: railBaseCode, dimensionKey: payment.rail, name: "Collection Receivable", accountType: "ASSET", normalBalance: "DR" });
         await postJournalEntry(trx, { eventType: "PAYMENT_REVERSED", sourceType: "payment", sourceId: paymentId, sequence: 3, agencyId: payment.agency_id, valueDate: payment.value_date, narrative: `${reason} (post-sweep recovery)`, lines: [
           { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: payment.gross_amount_minor },
           { seq: 2, accountCode: creditCode, direction: "CR", amountMinor: payment.gross_amount_minor },
         ] }, clock);
       } else {
         const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: agencyCode, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: payment.agency_id });
-        const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "1150", dimensionKey: payment.rail, name: "Rail Settlement Receivable", accountType: "ASSET", normalBalance: "DR" });
+        const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: railBaseCode, dimensionKey: payment.rail, name: "Collection Receivable", accountType: "ASSET", normalBalance: "DR" });
         await postJournalEntry(trx, { eventType: "PAYMENT_REVERSED", sourceType: "payment", sourceId: paymentId, sequence: 3, agencyId: payment.agency_id, valueDate: payment.value_date, narrative: reason, lines: [
           { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: payment.gross_amount_minor },
           { seq: 2, accountCode: creditCode, direction: "CR", amountMinor: payment.gross_amount_minor },

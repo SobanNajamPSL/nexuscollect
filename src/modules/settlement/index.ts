@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import type { Database } from "../../db/schema.js";
 import type { Clock } from "../../platform/clock/index.js";
 import { postJournalTemplate } from "../journal-templates/index.js";
@@ -236,21 +236,28 @@ export async function generateScroll(db: Kysely<Database>, agencyCode: string, b
 
     const controlTotalMinor = lines.reduce((s, l) => s + l.amountMinor, 0n);
 
-    // Hard rule 1, asserted (not just hoped): cross-check against real ledger credits.
+    // Hard rule 1, asserted (not just hoped): cross-check against real ledger
+    // credits to 2010, netted ONLY against same-day PAYMENT_REVERSED contras
+    // — a same-day capture-then-reverse (e.g. a dishonoured cheque) posts a CR
+    // to 2010 on capture and a DR to 2010 on reversal, and the reversed
+    // allocation has already dropped out of `controlTotalMinor` above (its
+    // `payment_allocation.status` is no longer APPLIED), so the ledger side
+    // must net that specific DR out to agree. A SWEEP_TO_TREASURY debit is
+    // deliberately NOT netted here: sweeping doesn't un-apply an allocation
+    // (the scroll still lists it), so it must not reduce this side either.
     const agencyLedgerAccount = await trx.selectFrom("ledger_account").select("code").where("code", "like", "2010-%").where("agency_id", "=", agency.id).executeTakeFirst();
-    const ledgerCredits = agencyLedgerAccount
+    const netRow = agencyLedgerAccount
       ? await trx
           .selectFrom("journal_line as jl")
           .innerJoin("journal_entry as je", "je.id", "jl.entry_id")
-          .select(({ fn }) => fn.sum<bigint>("jl.amount_minor").as("total"))
+          .select(sql<string>`SUM(CASE WHEN jl.direction = 'CR' THEN jl.amount_minor WHEN je.event_type = 'PAYMENT_REVERSED' THEN -jl.amount_minor ELSE 0 END)`.as("net"))
           .where("jl.account_code", "=", agencyLedgerAccount.code)
-          .where("jl.direction", "=", "CR")
           .where("je.value_date", "=", businessDate)
           .executeTakeFirst()
       : undefined;
-    const ledgerTotal = BigInt(ledgerCredits?.total ?? 0n);
+    const ledgerTotal = BigInt(netRow?.net ?? 0);
     if (ledgerTotal !== controlTotalMinor) {
-      throw new Error(`Scroll control total (${controlTotalMinor}) does not tie to ledger credits to 2010 for ${agencyCode}/${businessDate} (${ledgerTotal}) — refusing to emit`);
+      throw new Error(`Scroll control total (${controlTotalMinor}) does not tie to net ledger credits to 2010 for ${agencyCode}/${businessDate} (${ledgerTotal}) — refusing to emit`);
     }
 
     const detailLines = lines.map(formatDetailLine);
@@ -438,6 +445,18 @@ export async function runPreCloseChecks(db: Kysely<Database>, periodStart: strin
 
   const uncertainPayments = await db.selectFrom("payment").select(({ fn }) => fn.countAll().as("c")).where("status", "=", "UNCERTAIN").executeTakeFirstOrThrow();
   if (Number(uncertainPayments.c) > 0) failures.push(`${uncertainPayments.c} payment(s) still UNCERTAIN`);
+
+  // §26.1 A8: suspense (1900) must be zero at period close. Nothing in this
+  // build posts to 1900 today (RECON_WRITE_OFF is the only template that
+  // touches it, and it's requiresApproval-gated, unused by any current test
+  // fixture) — a real, honest check that trivially holds rather than a
+  // fabricated pass.
+  const suspenseAccounts = await db.selectFrom("ledger_account").select("code").where("code", "like", "1900%").execute();
+  if (suspenseAccounts.length > 0) {
+    const lines = await db.selectFrom("journal_line").select(["direction", "amount_minor"]).where("account_code", "in", suspenseAccounts.map((a) => a.code)).execute();
+    const suspenseBalance = lines.reduce((s, l) => s + (l.direction === "DR" ? l.amount_minor : -l.amount_minor), 0n);
+    if (suspenseBalance !== 0n) failures.push(`Suspense account balance is ${suspenseBalance}, not zero`);
+  }
 
   return { passed: failures.length === 0, failures };
 }

@@ -77,7 +77,7 @@ describe("Phase 4: settlement, treasury sweep, period close (§13, Prompt 5)", (
     await testDb.db.insertInto("payment_allocation").values({ payment_id: paymentId, assessment_id: anyAssessment.assessment_id, line_item_id: anyLine.line_id, revenue_head_id: anyLine.revenue_head_id, amount_minor: 100_00n, allocation_basis: "EXPLICIT", status: "APPLIED" }).execute();
 
     try {
-      await expect(generateScroll(testDb.db, "FBR", "2026-05-01", clock)).rejects.toThrow(/does not tie to ledger credits/);
+      await expect(generateScroll(testDb.db, "FBR", "2026-05-01", clock)).rejects.toThrow(/does not tie to net ledger credits/);
     } finally {
       // Clean up the deliberately-orphaned row so later tests in this file
       // (balance-rebuild via period pre-close checks) see consistent state.
