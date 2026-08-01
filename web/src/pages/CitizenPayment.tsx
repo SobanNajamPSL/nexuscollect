@@ -39,6 +39,8 @@ export default function CitizenPayment() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ResolveResponse | null>(null);
   const [paying, setPaying] = useState(false);
+  const [cardWalletPsid, setCardWalletPsid] = useState<string | null>(null);
+  const [cardWalletResult, setCardWalletResult] = useState<string | null>(null);
 
   async function handleResolve(e: React.FormEvent) {
     e.preventDefault();
@@ -82,6 +84,43 @@ export default function CitizenPayment() {
     }
   }
 
+  // No real card number is ever collected here — there is no PAN field
+  // anywhere in this form. A "gateway token" is what a hosted card field
+  // would hand back in production; this demo generates a synthetic one
+  // client-side purely to exercise the same capture path, and the result
+  // shown below is exactly what the platform actually stores (token +
+  // BIN6 + last4 — never a PAN).
+  async function handleCardOrWallet(p: Payable, method: "card" | "wallet") {
+    setError(null);
+    setCardWalletResult(null);
+    try {
+      if (method === "card") {
+        const res = await api.post<{ payment_id: string; status: string }>("/internal/payments/card", {
+          psid: p.psid,
+          amount_minor: p.payable_amount_minor,
+          value_date: "2026-07-30",
+          gateway_token: `tok_${crypto.randomUUID().slice(0, 12)}`,
+          bin6: "435671",
+          last4: "4242",
+          scheme: "PAYPAK",
+        });
+        setCardWalletResult(`Card payment ${res.status} (${res.payment_id}) — stored token + BIN 435671 + last4 4242. No card number ever reached the platform.`);
+      } else {
+        const res = await api.post<{ payment_id: string; status: string }>("/internal/payments/wallet", {
+          psid: p.psid,
+          amount_minor: p.payable_amount_minor,
+          value_date: "2026-07-30",
+          wallet_provider: "EASYPAISA",
+          wallet_msisdn_masked: "03**-***1234",
+        });
+        setCardWalletResult(`Wallet payment ${res.status} (${res.payment_id}) via EasyPaisa, masked MSISDN 03**-***1234.`);
+      }
+      setCardWalletPsid(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
@@ -100,6 +139,7 @@ export default function CitizenPayment() {
       </form>
 
       {error && <div className="card p-4 border-red-300 bg-red-50 text-red-800 text-sm">{error}</div>}
+      {cardWalletResult && <div className="card p-4 bg-green-50 border-green-300 text-green-800 text-sm">{cardWalletResult}</div>}
 
       {result && (
         <div className="space-y-4">
@@ -131,6 +171,16 @@ export default function CitizenPayment() {
                       Early-payment discount of PKR {formatPKR(p.discount_applied_minor)} live until {p.discount_expires_on}
                     </div>
                   )}
+                  <div className="mt-2">
+                    <button className="text-xs text-gov-primary underline" onClick={() => setCardWalletPsid(cardWalletPsid === p.psid ? null : p.psid)}>Pay just this bill by card or wallet</button>
+                    {cardWalletPsid === p.psid && (
+                      <div className="mt-2 flex gap-2">
+                        <button className="btn-secondary text-xs" onClick={() => handleCardOrWallet(p, "card")}>Pay by card</button>
+                        <button className="btn-secondary text-xs" onClick={() => handleCardOrWallet(p, "wallet")}>Pay by wallet</button>
+                        <a className="btn-secondary text-xs" href={`/v1/challan/${p.psid}`} target="_blank" rel="noreferrer">Print challan</a>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

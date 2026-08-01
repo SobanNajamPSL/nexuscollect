@@ -25,6 +25,9 @@ const OPS_NAV = [
   { to: "/ops/recon-console", label: "Recon Console" },
   { to: "/ops/reports", label: "Report Centre" },
   { to: "/ops/audit", label: "Audit Explorer" },
+  { to: "/ops/rtp", label: "Request to Pay" },
+  { to: "/ops/refunds", label: "Refunds" },
+  { to: "/ops/bulk-payments", label: "Bulk Payments" },
 ];
 
 export default function App() {

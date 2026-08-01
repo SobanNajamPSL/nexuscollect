@@ -8,7 +8,7 @@ interface Payer360 {
   assessments: { psid: string; status: string; balance_minor: number }[];
   payments: { payment_reference: string; status: string; gross_amount_minor: number }[];
   refunds: { refund_reference: string; status: string; amount_minor: number }[];
-  mandates: { mandate_reference: string; status: string; max_amount_minor: number }[];
+  mandates: { id: string; mandate_reference: string; status: string; max_amount_minor: number }[];
 }
 
 export default function PayerExplorer() {
@@ -16,6 +16,14 @@ export default function PayerExplorer() {
   const [hits, setHits] = useState<PayerHit[]>([]);
   const [data, setData] = useState<Payer360 | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showMandateForm, setShowMandateForm] = useState(false);
+  const [productCode, setProductCode] = useState("");
+  const [maxAmountPkr, setMaxAmountPkr] = useState("");
+  const [frequency, setFrequency] = useState<"MONTHLY" | "QUARTERLY" | "ANNUAL">("ANNUAL");
+  const [collectingRef, setCollectingRef] = useState<string | null>(null);
+  const [collectPsid, setCollectPsid] = useState("");
+  const [collectAmountPkr, setCollectAmountPkr] = useState("");
+  const [collectResult, setCollectResult] = useState<string | null>(null);
 
   async function search() {
     setError(null);
@@ -31,6 +39,42 @@ export default function PayerExplorer() {
     setError(null);
     try {
       setData(await api.get<Payer360>(`/internal/payers/${id}/360`));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function createMandate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!data) return;
+    setError(null);
+    try {
+      await api.post("/internal/mandates", {
+        payer_reference: data.payer_id,
+        product_code: productCode,
+        max_amount_minor: Math.round(Number(maxAmountPkr) * 100),
+        frequency,
+        first_collection_date: "2026-08-30",
+      });
+      setShowMandateForm(false);
+      setProductCode(""); setMaxAmountPkr("");
+      await open(data.payer_id);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function collectNow(mandateReference: string, mandateId: string) {
+    setError(null);
+    setCollectResult(null);
+    try {
+      const res = await api.post<{ outcome: string; payment_id: string | null; retry_count: number }>(`/internal/mandates/${mandateId}/collect`, {
+        psid: collectPsid,
+        amount_minor: Math.round(Number(collectAmountPkr) * 100),
+        value_date: "2026-07-30",
+      });
+      setCollectResult(`${mandateReference}: ${res.outcome}${res.payment_id ? ` — payment ${res.payment_id}` : ""}`);
+      setCollectingRef(null);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -75,9 +119,41 @@ export default function PayerExplorer() {
               {data.accounts.map((a, i) => <div key={i} className="p-3 text-sm border-b border-gov-border last:border-0">{a.agency_code} — {a.crn} ({a.status})</div>)}
             </div>
             <div className="card">
-              <div className="p-3 font-semibold bg-gray-50">Mandates</div>
-              {data.mandates.map((m, i) => <div key={i} className="p-3 text-sm border-b border-gov-border last:border-0">{m.mandate_reference} — PKR {formatPKR(m.max_amount_minor)} max ({m.status})</div>)}
+              <div className="p-3 font-semibold bg-gray-50 flex items-center justify-between">
+                <span>Mandates</span>
+                <button className="btn-secondary text-xs" onClick={() => setShowMandateForm((s) => !s)}>{showMandateForm ? "Cancel" : "Create mandate"}</button>
+              </div>
+              {showMandateForm && (
+                <form onSubmit={createMandate} className="p-3 space-y-2 border-b border-gov-border">
+                  <input className="input w-full text-sm" value={productCode} onChange={(e) => setProductCode(e.target.value)} placeholder="Product code (e.g. ETPB-TOKEN-TAX)" required />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input className="input text-sm" type="number" step="0.01" value={maxAmountPkr} onChange={(e) => setMaxAmountPkr(e.target.value)} placeholder="Max amount (PKR)" required />
+                    <select className="input text-sm" value={frequency} onChange={(e) => setFrequency(e.target.value as never)}>
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="QUARTERLY">Quarterly</option>
+                      <option value="ANNUAL">Annual</option>
+                    </select>
+                  </div>
+                  <button className="btn text-sm" type="submit">Create — pre-notification required before every debit</button>
+                </form>
+              )}
+              {data.mandates.map((m) => (
+                <div key={m.id} className="p-3 text-sm border-b border-gov-border last:border-0">
+                  <div className="flex items-center justify-between">
+                    <span>{m.mandate_reference} — PKR {formatPKR(m.max_amount_minor)} max ({m.status})</span>
+                    <button className="btn-secondary text-xs" onClick={() => setCollectingRef(collectingRef === m.id ? null : m.id)}>Collect now</button>
+                  </div>
+                  {collectingRef === m.id && (
+                    <div className="mt-2 flex gap-2">
+                      <input className="input text-xs flex-1" value={collectPsid} onChange={(e) => setCollectPsid(e.target.value)} placeholder="PSID to collect against" />
+                      <input className="input text-xs w-28" type="number" step="0.01" value={collectAmountPkr} onChange={(e) => setCollectAmountPkr(e.target.value)} placeholder="PKR" />
+                      <button className="btn text-xs" onClick={() => collectNow(m.mandate_reference, m.id)}>Go</button>
+                    </div>
+                  )}
+                </div>
+              ))}
               {data.mandates.length === 0 && <div className="p-3 text-sm text-gov-ink/60">No mandates.</div>}
+              {collectResult && <div className="p-3 text-xs bg-gray-50">{collectResult}</div>}
             </div>
           </div>
 

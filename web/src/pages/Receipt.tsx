@@ -17,17 +17,40 @@ interface ReceiptDto {
   status: string;
 }
 
+interface SignedBundle { receipt_no: string; canonical_payload: string; signature_base64: string; public_key_pem: string }
+
 export default function Receipt() {
   const { paymentReference } = useParams();
   const [payment, setPayment] = useState<PaymentDto | null>(null);
   const [receipt, setReceipt] = useState<ReceiptDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signed, setSigned] = useState<SignedBundle | null>(null);
+  const [verifyResult, setVerifyResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (!paymentReference) return;
     api.get<PaymentDto>(`/v1/payments/${paymentReference}`).then(setPayment).catch((e) => setError(e.message));
     api.get<ReceiptDto>(`/v1/payments/${paymentReference}/receipt`).then(setReceipt).catch(() => setReceipt(null));
   }, [paymentReference]);
+
+  async function loadSigned() {
+    if (!receipt) return;
+    setVerifyResult(null);
+    try {
+      setSigned(await api.get<SignedBundle>(`/v1/receipts/${receipt.receipt_no}/signed`));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function verify(tamper: boolean) {
+    if (!signed) return;
+    const payload = tamper ? signed.canonical_payload.replace(/\d/, (d) => (d === "9" ? "0" : "9")) : signed.canonical_payload;
+    const res = await api.post<{ valid: boolean }>("/v1/receipts/verify-signature", {
+      canonical_payload: payload, signature_base64: signed.signature_base64, public_key_pem: signed.public_key_pem,
+    }, { idempotent: false });
+    setVerifyResult(res.valid ? "✓ Signature valid — this is the exact check an offline verifier runs, no network or database access involved." : "✗ Signature invalid — the payload was altered.");
+  }
 
   if (error) return <div className="card p-4 border-red-300 bg-red-50 text-red-800">{error}</div>;
   if (!payment) return <div className="text-gov-ink/60">Loading receipt…</div>;
@@ -68,6 +91,24 @@ export default function Receipt() {
           </p>
         </div>
       )}
+
+      {receipt && !isUncertain && (
+        <div className="card p-4 space-y-2">
+          {!signed ? (
+            <button className="btn-secondary text-sm w-full" onClick={loadSigned}>View signed receipt (offline-verifiable)</button>
+          ) : (
+            <>
+              <div className="text-xs text-gov-ink/60">Ed25519 signature over the receipt's canonical payload — the same check below runs with no database or network access.</div>
+              <div className="flex gap-2">
+                <button className="btn-secondary text-xs" onClick={() => verify(false)}>Verify (unaltered)</button>
+                <button className="btn-secondary text-xs" onClick={() => verify(true)}>Verify (tampered digit)</button>
+              </div>
+              {verifyResult && <div className={`text-sm rounded p-2 ${verifyResult.startsWith("✓") ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{verifyResult}</div>}
+            </>
+          )}
+        </div>
+      )}
+
       <div className="text-center">
         <Link to="/" className="btn-secondary">Back to payment lookup</Link>
       </div>

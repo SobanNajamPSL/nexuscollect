@@ -17,6 +17,8 @@ export default function PaymentSearch() {
   const [rows, setRows] = useState<SearchRow[]>([]);
   const [detail, setDetail] = useState<Payment360 | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recallOutcome, setRecallOutcome] = useState<{ outcome: string; camt029_reason: string | null } | null>(null);
+  const [recalling, setRecalling] = useState(false);
 
   async function search() {
     setError(null);
@@ -30,10 +32,28 @@ export default function PaymentSearch() {
 
   async function open(ref: string) {
     setError(null);
+    setRecallOutcome(null);
     try {
       setDetail(await api.get<Payment360>(`/internal/payments/${encodeURIComponent(ref)}/360`));
     } catch (err) {
       setError((err as Error).message);
+    }
+  }
+
+  async function recall() {
+    if (!detail) return;
+    setRecalling(true);
+    setError(null);
+    try {
+      const result = await api.post<{ recall_id: string; outcome: string; camt029_reason: string | null }>(
+        "/internal/recalls",
+        { payment_reference: detail.payment_reference, requested_reason: "SENDING_BANK_REQUEST" },
+      );
+      setRecallOutcome({ outcome: result.outcome, camt029_reason: result.camt029_reason });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRecalling(false);
     }
   }
 
@@ -74,8 +94,17 @@ export default function PaymentSearch() {
           <div className="card p-4">
             <div className="flex items-center justify-between">
               <div className="text-lg font-semibold">{detail.payment_reference}</div>
-              <span className="badge bg-gray-100 text-gray-700">{detail.status}</span>
+              <div className="flex items-center gap-2">
+                <span className="badge bg-gray-100 text-gray-700">{detail.status}</span>
+                <button className="btn-secondary text-xs" disabled={recalling} onClick={recall}>Recall payment</button>
+              </div>
             </div>
+            {recallOutcome && (
+              <div className="mt-3 text-sm bg-gray-50 rounded p-2">
+                Recall outcome: <span className="font-medium">{recallOutcome.outcome}</span>
+                {recallOutcome.camt029_reason && <span className="text-gov-ink/60"> — {recallOutcome.camt029_reason}</span>}
+              </div>
+            )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-sm">
               <div><div className="text-gov-ink/60">Gross</div><div className="font-medium">PKR {formatPKR(detail.gross_amount_minor)}</div></div>
               <div><div className="text-gov-ink/60">Unapplied</div><div className="font-medium">PKR {formatPKR(detail.unapplied_amount_minor)}</div></div>

@@ -29,7 +29,7 @@ import { returnInstrument } from "../modules/instrument/index.js";
 import { resetDemoData } from "../loader/reset.js";
 import { DemoClock } from "../platform/clock/index.js";
 import { billInquiry, billPayment, billPaymentReversal, billPaymentAdvice, SwitchInquiryTokenInvalidError } from "../adapters/switch/index.js";
-import { markSent, markDelivered, markPresented, acceptRtp, declineRtp, cancelRtp, fulfillRtpWithPayment, expireDueRequests, IllegalRtpTransition } from "../modules/rtp/index.js";
+import { markSent, markDelivered, markPresented, acceptRtp, declineRtp, cancelRtp, fulfillRtpWithPayment, expireDueRequests, remindRtp, createRtp, IllegalRtpTransition } from "../modules/rtp/index.js";
 import { generateScroll, runSweep, closePeriod, runPreCloseChecks, recordAgencySignoff, recordScrollAck, PeriodCloseBlockedError, PeriodAlreadyClosedError } from "../modules/settlement/index.js";
 import { createRefund, approveRefund, payRefund, SelfApprovalError } from "../modules/refund/index.js";
 import { validateBulkFile, confirmBulkBatch, BulkBatchNotValidatedError } from "../modules/bulk/index.js";
@@ -814,6 +814,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // --- Phase 3b: Request to Pay (§9.2 full state machine) ---
 
+  app.post("/internal/rtp", async (request, reply) => {
+    const body = request.body as { psid: string; payer_alias_type: "MSISDN" | "EMAIL" | "NATIONAL_ID" | "FREE_TEXT"; payer_alias_value: string; payer_name?: string; amount_modifiable?: boolean; expires_in_days?: number };
+    const assessment = await db.selectFrom("assessment").select(["id", "agency_id", "balance_minor", "payer_id"]).where("psid", "=", body.psid).executeTakeFirstOrThrow();
+    const result = await createRtp(db, {
+      agencyId: assessment.agency_id,
+      assessmentIds: [assessment.id],
+      amountMinor: assessment.balance_minor,
+      payerAliasType: body.payer_alias_type,
+      payerAliasValue: body.payer_alias_value,
+      ...(body.payer_name ? { payerName: body.payer_name } : {}),
+      ...(assessment.payer_id ? { payerId: assessment.payer_id } : {}),
+      ...(body.amount_modifiable !== undefined ? { amountModifiable: body.amount_modifiable } : {}),
+      ...(body.expires_in_days !== undefined ? { expiresInDays: body.expires_in_days } : {}),
+    }, clock);
+    return reply.code(201).send({ rtp_id: result.rtpId, rtp_reference: result.rtpReference });
+  });
+
   app.get("/internal/rtp", async (_request, reply) => {
     const rows = await db
       .selectFrom("request_to_pay")
@@ -838,6 +855,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           case "accept": return acceptRtp(trx, rtpId, mode ?? "FULL", actor, clock, accepted_amount_minor !== undefined ? BigInt(accepted_amount_minor) : undefined);
           case "decline": return declineRtp(trx, rtpId, reason_code ?? "UNSPECIFIED", actor, clock);
           case "cancel": return cancelRtp(trx, rtpId, reason_code ?? "AGENCY_WITHDRAWN", actor, clock);
+          case "remind": return remindRtp(trx, rtpId, new Date(clock.now().getTime() + 5 * 24 * 60 * 60 * 1000), actor, clock);
           default: throw new Error(`Unknown RtP action "${action}"`);
         }
       });
@@ -1219,7 +1237,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       .where("assessment.payer_id", "=", payerId)
       .distinct()
       .execute();
-    const mandates = await db.selectFrom("mandate").select(["mandate_reference", "status", "max_amount_minor"]).where("payer_id", "=", payerId).execute();
+    const mandates = await db.selectFrom("mandate").select(["id", "mandate_reference", "status", "max_amount_minor"]).where("payer_id", "=", payerId).execute();
 
     return reply.code(200).send({
       payer_id: payer.id, name: payer.name, payer_type: payer.payer_type, risk_rating: payer.risk_rating,
@@ -1227,7 +1245,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       assessments: assessments.map((a) => ({ psid: a.psid, status: a.status, balance_minor: toWireMinor(a.balance_minor) })),
       payments: payments.map((p) => ({ payment_reference: p.payment_reference, status: p.status, gross_amount_minor: toWireMinor(p.gross_amount_minor) })),
       refunds: refunds.map((r) => ({ refund_reference: r.refund_reference, status: r.status, amount_minor: toWireMinor(r.amount_minor) })),
-      mandates: mandates.map((m) => ({ mandate_reference: m.mandate_reference, status: m.status, max_amount_minor: toWireMinor(m.max_amount_minor) })),
+      mandates: mandates.map((m) => ({ id: m.id, mandate_reference: m.mandate_reference, status: m.status, max_amount_minor: toWireMinor(m.max_amount_minor) })),
     });
   });
 

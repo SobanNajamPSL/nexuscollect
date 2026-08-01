@@ -22,6 +22,9 @@ import AgencyConfig from "./pages/AgencyConfig.js";
 import ReconConsole from "./pages/ReconConsole.js";
 import ReportCentre from "./pages/ReportCentre.js";
 import AuditExplorer from "./pages/AuditExplorer.js";
+import RequestToPay from "./pages/RequestToPay.js";
+import Refunds from "./pages/Refunds.js";
+import BulkPayments from "./pages/BulkPayments.js";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -47,6 +50,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="ops/recon-console" element={<ReconConsole />} />
           <Route path="ops/reports" element={<ReportCentre />} />
           <Route path="ops/audit" element={<AuditExplorer />} />
+          <Route path="ops/rtp" element={<RequestToPay />} />
+          <Route path="ops/refunds" element={<Refunds />} />
+          <Route path="ops/bulk-payments" element={<BulkPayments />} />
         </Route>
       </Routes>
     </BrowserRouter>

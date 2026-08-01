@@ -1,8 +1,13 @@
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Kysely, Transaction } from "kysely";
 import type { Database } from "../../db/schema.js";
 import type { Clock } from "../../platform/clock/index.js";
 import { appendAuditEntry } from "../../platform/audit/index.js";
 import { appendOutboxEvent } from "../../platform/outbox/index.js";
+
+function generateRtpReference(): string {
+  return `RTP${randomBytes(6).toString("hex").toUpperCase()}`;
+}
 
 /**
  * §9.2's full 15-state Request to Pay machine. Every transition goes through
@@ -258,4 +263,67 @@ export async function fulfillRtpWithPayment(trx: Transaction<Database>, rtpId: s
     : row.status === "EXPIRED" ? "rtp.fulfilled_late"
     : "rtp.fulfilled";
   return transitionRtp(trx, rtpId, event, actor, clock, { patch: { fulfilling_payment_id: paymentId } });
+}
+
+export interface CreateRtpInput {
+  agencyId: string;
+  assessmentIds: string[];
+  amountMinor: bigint;
+  payerAliasType: "MSISDN" | "EMAIL" | "NATIONAL_ID" | "FREE_TEXT";
+  payerAliasValue: string;
+  payerName?: string;
+  payerId?: string;
+  amountModifiable?: boolean;
+  expiresInDays?: number;
+}
+
+/**
+ * §9.2's own entry point into the machine: a request starts life in CREATED,
+ * which every `ALLOWED_TRANSITIONS` row above treats as a starting state, not
+ * a destination — so this is a plain INSERT (there is no "from" state to
+ * guard), followed by the same audit+outbox pairing every other transition
+ * gets, for a consistent history from the very first row.
+ */
+export async function createRtp(db: Kysely<Database>, input: CreateRtpInput, clock: Clock): Promise<{ rtpId: string; rtpReference: string }> {
+  const rtpReference = generateRtpReference();
+  const now = clock.now();
+  const expiresAt = new Date(now.getTime() + (input.expiresInDays ?? 5) * 24 * 60 * 60 * 1000);
+
+  return db.transaction().execute(async (trx) => {
+    const rtpId = randomUUID();
+    await trx
+      .insertInto("request_to_pay")
+      .values({
+        id: rtpId,
+        rtp_reference: rtpReference,
+        agency_id: input.agencyId,
+        assessment_ids: input.assessmentIds,
+        payer_id: input.payerId ?? null,
+        payer_alias_type: input.payerAliasType,
+        payer_alias_value: input.payerAliasValue,
+        payer_name: input.payerName ?? null,
+        amount_minor: input.amountMinor,
+        amount_modifiable: input.amountModifiable ?? false,
+        expires_at: expiresAt,
+        status: "CREATED",
+      })
+      .execute();
+
+    await appendAuditEntry(
+      trx,
+      {
+        actorType: "USER", actorId: "ops-console", action: "rtp.created",
+        entityType: "request_to_pay", entityId: rtpId,
+        afterJson: { rtp_reference: rtpReference, amount_minor: input.amountMinor.toString(), status: "CREATED", assessment_ids: input.assessmentIds },
+      },
+      clock,
+    );
+    await appendOutboxEvent(
+      trx,
+      { aggregateType: "request_to_pay", aggregateId: rtpId, sequence: 1, eventType: "rtp.created", payload: { rtp_reference: rtpReference } },
+      clock,
+    );
+
+    return { rtpId, rtpReference };
+  });
 }
