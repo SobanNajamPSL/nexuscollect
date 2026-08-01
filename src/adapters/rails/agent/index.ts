@@ -21,10 +21,10 @@ export interface AgentCaptureInput {
   payerId?: string;
 }
 
-async function getOrCreateAgentFloatAccount(db: Kysely<Database>, agentCode: string, agentName?: string): Promise<string> {
+async function getOrCreateAgentFloatAccount(db: Kysely<Database>, agentCode: string, clock: Clock, agentName?: string): Promise<string> {
   const existing = await db.selectFrom("agent_float_account").select("id").where("agent_code", "=", agentCode).executeTakeFirst();
   if (existing) return existing.id;
-  const inserted = await db.insertInto("agent_float_account").values({ agent_code: agentCode, agent_name: agentName ?? agentCode }).returning("id").executeTakeFirstOrThrow();
+  const inserted = await db.insertInto("agent_float_account").values({ agent_code: agentCode, agent_name: agentName ?? agentCode, created_at: clock.now() }).returning("id").executeTakeFirstOrThrow();
   return inserted.id;
 }
 
@@ -34,7 +34,7 @@ async function getOrCreateAgentFloatAccount(db: Kysely<Database>, agentCode: str
  * what the agent now owes the operator, not a substitute for it.
  */
 export async function captureAgentPayment(db: Kysely<Database>, input: AgentCaptureInput, clock: Clock): Promise<CapturePaymentResult> {
-  const floatAccountId = await getOrCreateAgentFloatAccount(db, input.agentCode, input.agentName);
+  const floatAccountId = await getOrCreateAgentFloatAccount(db, input.agentCode, clock, input.agentName);
 
   const result = await capturePayment(
     db,
@@ -50,15 +50,15 @@ export async function captureAgentPayment(db: Kysely<Database>, input: AgentCapt
 
   await db
     .insertInto("agent_float_movement")
-    .values({ agent_float_account_id: floatAccountId, payment_id: result.paymentId, movement_type: "COLLECTION", amount_minor: input.amountMinor, business_date: input.valueDate })
+    .values({ agent_float_account_id: floatAccountId, payment_id: result.paymentId, movement_type: "COLLECTION", amount_minor: input.amountMinor, business_date: input.valueDate, created_at: clock.now() })
     .execute();
 
   return result;
 }
 
-export async function remitAgentFloat(db: Kysely<Database>, agentCode: string, amountMinor: bigint, businessDate: string): Promise<void> {
-  const floatAccountId = await getOrCreateAgentFloatAccount(db, agentCode);
-  await db.insertInto("agent_float_movement").values({ agent_float_account_id: floatAccountId, payment_id: null, movement_type: "REMITTANCE", amount_minor: amountMinor, business_date: businessDate }).execute();
+export async function remitAgentFloat(db: Kysely<Database>, agentCode: string, amountMinor: bigint, businessDate: string, clock: Clock): Promise<void> {
+  const floatAccountId = await getOrCreateAgentFloatAccount(db, agentCode, clock);
+  await db.insertInto("agent_float_movement").values({ agent_float_account_id: floatAccountId, payment_id: null, movement_type: "REMITTANCE", amount_minor: amountMinor, business_date: businessDate, created_at: clock.now() }).execute();
 }
 
 export interface AgentFloatPosition {

@@ -50,6 +50,7 @@ export async function receiveRecall(db: Kysely<Database>, paymentId: string, req
       payment_id: paymentId, requested_reason: requestedReason,
       status: outcome === "RETURNED" ? "RETURNED" : outcome === "AGENCY_DECISION_PENDING" ? "AGENCY_DECISION_PENDING" : "REJECTED",
       camt029_reason: camt029Reason, resolved_at: outcome === "RETURNED" ? clock.now() : null,
+      created_at: clock.now(),
     })
     .returning("id")
     .executeTakeFirstOrThrow();

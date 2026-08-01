@@ -26,7 +26,7 @@ export interface CardCaptureInput {
 export async function captureCardPayment(db: Kysely<Database>, input: CardCaptureInput, clock: Clock): Promise<CapturePaymentResult> {
   await db
     .insertInto("card_token")
-    .values({ payer_id: input.payerId ?? null, gateway_token: input.gatewayToken, bin6: input.bin6, last4: input.last4, scheme: input.scheme })
+    .values({ payer_id: input.payerId ?? null, gateway_token: input.gatewayToken, bin6: input.bin6, last4: input.last4, scheme: input.scheme, created_at: clock.now() })
     .execute();
 
   return capturePayment(

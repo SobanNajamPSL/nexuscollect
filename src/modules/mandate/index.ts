@@ -30,13 +30,14 @@ export interface CreateMandateInput {
   finalCollectionDate?: string;
 }
 
-export async function createMandate(db: Kysely<Database>, input: CreateMandateInput): Promise<{ mandateId: string; mandateReference: string }> {
+export async function createMandate(db: Kysely<Database>, input: CreateMandateInput, clock: Clock): Promise<{ mandateId: string; mandateReference: string }> {
   const mandateReference = generateMandateReference();
   const inserted = await db
     .insertInto("mandate")
     .values({
       mandate_reference: mandateReference, payer_id: input.payerId, product_id: input.productId, max_amount_minor: input.maxAmountMinor,
       frequency: input.frequency, first_collection_date: input.firstCollectionDate, final_collection_date: input.finalCollectionDate ?? null,
+      created_at: clock.now(),
     })
     .returning("id")
     .executeTakeFirstOrThrow();

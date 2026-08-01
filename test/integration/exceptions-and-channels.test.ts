@@ -133,7 +133,7 @@ describe("Phase 5: refunds, reversal cascade, card/wallet, mandates, bulk file (
   it("§8.11: mandate collection reuses the RtP machinery and fulfils it on success", async () => {
     const payer = await testDb.db.selectFrom("payer").select("id").limit(1).executeTakeFirstOrThrow();
     const product = await testDb.db.selectFrom("collection_product").select("id").where("code", "=", "WASA-WATER-DOM").executeTakeFirstOrThrow();
-    const { mandateId } = await createMandate(testDb.db, { payerId: payer.id, productId: product.id, maxAmountMinor: 500_000n, frequency: "MONTHLY", firstCollectionDate: "2026-07-30" });
+    const { mandateId } = await createMandate(testDb.db, { payerId: payer.id, productId: product.id, maxAmountMinor: 500_000n, frequency: "MONTHLY", firstCollectionDate: "2026-07-30" }, clock);
 
     const psid = "5101150000150";
     const assessmentRow = await testDb.db.selectFrom("assessment").select("id").where("psid", "=", psid).executeTakeFirst();

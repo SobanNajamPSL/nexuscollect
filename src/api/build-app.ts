@@ -1058,7 +1058,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const payer = await db.selectFrom("payer").select("id").where("id", "=", body.payer_reference).executeTakeFirst();
     const product = await db.selectFrom("collection_product").select("id").where("code", "=", body.product_code).executeTakeFirstOrThrow();
     const payerId = payer?.id ?? (await db.selectFrom("payer").select("id").limit(1).executeTakeFirstOrThrow()).id;
-    const result = await createMandate(db, { payerId, productId: product.id, maxAmountMinor: BigInt(body.max_amount_minor), frequency: body.frequency, firstCollectionDate: body.first_collection_date });
+    const result = await createMandate(db, { payerId, productId: product.id, maxAmountMinor: BigInt(body.max_amount_minor), frequency: body.frequency, firstCollectionDate: body.first_collection_date }, clock);
     return reply.code(201).send({ mandate_id: result.mandateId, mandate_reference: result.mandateReference });
   });
 
@@ -1092,7 +1092,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.post("/internal/agents/:agentCode/remit", async (request, reply) => {
     const { agentCode } = request.params as { agentCode: string };
     const { amount_minor, business_date } = request.body as { amount_minor: number; business_date: string };
-    await remitAgentFloat(db, agentCode, BigInt(amount_minor), business_date);
+    await remitAgentFloat(db, agentCode, BigInt(amount_minor), business_date, clock);
     return reply.code(200).send({ remitted: true });
   });
 

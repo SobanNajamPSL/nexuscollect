@@ -33,6 +33,7 @@ export async function receiveDispute(db: Kysely<Database>, input: CreateDisputeI
         amount_minor: input.amountMinor,
         status: "RECEIVED",
         representment_deadline: input.representmentDeadline ?? null,
+        created_at: clock.now(),
       })
       .returning("id")
       .executeTakeFirstOrThrow();

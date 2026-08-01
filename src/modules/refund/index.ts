@@ -76,6 +76,7 @@ export async function createRefund(db: Kysely<Database>, input: CreateRefundInpu
         // invented; only set when the caller explicitly overrides it.
         beneficiary_account_masked: input.overrideBeneficiaryAccountMasked ?? payment.payer_account_masked ?? null,
         status: "PENDING_APPROVAL",
+        created_at: clock.now(),
       })
       .returning("id")
       .executeTakeFirstOrThrow();
