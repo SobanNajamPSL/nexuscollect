@@ -1342,14 +1342,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     const versions = await db.selectFrom("assessment").select(["id", "version", "status", "assessed_amount_minor", "payable_amount_minor", "allocated_amount_minor", "balance_minor"]).where("psid", "=", psid).orderBy("version", "asc").execute();
     const lineItems = await db.selectFrom("assessment_line_item").innerJoin("revenue_head", "revenue_head.id", "assessment_line_item.revenue_head_id").select(["revenue_head.code as head_code", "assessment_line_item.line_type", "assessment_line_item.amount_minor", "assessment_line_item.allocated_minor"]).where("assessment_line_item.assessment_id", "=", current.id).execute();
-    const allocations = await db.selectFrom("payment_allocation").innerJoin("payment", "payment.id", "payment_allocation.payment_id").select(["payment.payment_reference", "payment_allocation.amount_minor", "payment_allocation.status", "payment_allocation.applied_at"]).where("payment_allocation.assessment_id", "=", current.id).execute();
+    const allocations = await db.selectFrom("payment_allocation").innerJoin("payment", "payment.id", "payment_allocation.payment_id").select(["payment.payment_reference", "payment_allocation.amount_minor", "payment_allocation.status", "payment_allocation.applied_at", "payment.status as payment_status"]).where("payment_allocation.assessment_id", "=", current.id).execute();
     const notifications = await db.selectFrom("notification_log").select(["event_type", "channel", "status", "sent_at"]).where("assessment_id", "=", current.id).execute();
 
     return reply.code(200).send({
       psid, current_version: current.version, status: current.status,
       versions: versions.map((v) => ({ version: v.version, status: v.status, assessed_amount_minor: toWireMinor(v.assessed_amount_minor), payable_amount_minor: toWireMinor(v.payable_amount_minor), allocated_amount_minor: toWireMinor(v.allocated_amount_minor), balance_minor: toWireMinor(v.balance_minor) })),
       line_items: lineItems.map((l) => ({ head_code: l.head_code, line_type: l.line_type, amount_minor: toWireMinor(l.amount_minor), allocated_minor: toWireMinor(l.allocated_minor) })),
-      payment_history: allocations.map((a) => ({ payment_reference: a.payment_reference, amount_minor: toWireMinor(a.amount_minor), status: a.status, applied_at: a.applied_at.toISOString() })),
+      payment_history: allocations.map((a) => ({ payment_reference: a.payment_reference, amount_minor: toWireMinor(a.amount_minor), status: a.status, payment_status: a.payment_status, applied_at: a.applied_at.toISOString() })),
       notifications: notifications.map((n) => ({ event_type: n.event_type, channel: n.channel, status: n.status, sent_at: n.sent_at.toISOString() })),
     });
   });

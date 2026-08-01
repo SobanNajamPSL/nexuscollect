@@ -5,7 +5,7 @@ interface Assessment360 {
   psid: string; current_version: number; status: string;
   versions: { version: number; status: string; assessed_amount_minor: number; payable_amount_minor: number; allocated_amount_minor: number; balance_minor: number }[];
   line_items: { head_code: string; line_type: string; amount_minor: number; allocated_minor: number }[];
-  payment_history: { payment_reference: string; amount_minor: number; status: string; applied_at: string }[];
+  payment_history: { payment_reference: string; amount_minor: number; status: string; payment_status: string; applied_at: string }[];
   notifications: { event_type: string; channel: string; status: string; sent_at: string }[];
 }
 
@@ -107,7 +107,7 @@ export default function AssessmentExplorer() {
                 {data.payment_history.map((p, i) => (
                   <div key={i} className="p-3 text-sm space-y-1">
                     <div className="flex justify-between"><span>{p.payment_reference}</span><span>PKR {formatPKR(p.amount_minor)} ({p.status})</span></div>
-                    {p.status === "CONFIRMED" && (
+                    {p.payment_status === "CONFIRMED" && (
                       <div className="flex gap-1 text-xs">
                         <span className="text-gov-ink/50 self-center">If this is a refundable deposit:</span>
                         <button className="btn-secondary text-xs" onClick={() => depositAction(p.payment_reference, "refund")}>Refund</button>
