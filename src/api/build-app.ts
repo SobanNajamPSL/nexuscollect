@@ -43,6 +43,9 @@ import { verifyReceiptSignature, getPublicKeyPem } from "../platform/receipt-sig
 import { deliverPendingWebhooks, createWebhookSubscription, replayWebhooks } from "../modules/webhook/index.js";
 import { sendNotification } from "../modules/notification/index.js";
 import * as reports from "../modules/reports/index.js";
+import { verifyAuditChain } from "../platform/audit/index.js";
+import { getOrCreateLedgerAccount } from "../modules/ledger/index.js";
+import { postJournalTemplate } from "../modules/journal-templates/index.js";
 
 export interface BuildAppOptions {
   db: Kysely<Database>;
@@ -1112,6 +1115,233 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get("/internal/reports/r18", async (request, reply) => {
     const q = request.query as { agency_code: string; fiscal_year_start: string; fiscal_year_end: string };
     return reply.code(200).send(await reports.r18FiscalYearCertificate(db, q.agency_code, q.fiscal_year_start, q.fiscal_year_end, clock));
+  });
+
+  app.get("/internal/reports", async (_request, reply) => {
+    return reply.code(200).send([
+      { id: "r01", name: "Daily Collection Summary" }, { id: "r02", name: "Head-wise Collection Statement" },
+      { id: "r03", name: "Daily Reconciliation Certificate" }, { id: "r04", name: "Break Register & Ageing" },
+      { id: "r05", name: "Settlement & Sweep Report" }, { id: "r06", name: "Unapplied Receipts Ageing" },
+      { id: "r07", name: "Outstanding Assessments Ageing" }, { id: "r08", name: "RtP Funnel" },
+      { id: "r09", name: "Channel Performance" }, { id: "r10", name: "Fee & Revenue Statement" },
+      { id: "r11", name: "Refunds & Reversals" }, { id: "r12", name: "Cheque Performance" },
+      { id: "r13", name: "Trial Balance & Control Pack" }, { id: "r14", name: "Period Statement per Agency" },
+      { id: "r15", name: "SLA & Availability" }, { id: "r16", name: "Payer Experience" },
+      { id: "r17", name: "Regulatory Return" }, { id: "r18", name: "Fiscal Year Certificate" },
+    ]);
+  });
+
+  // --- Phase 6: back-office screens (§22.1) ---
+
+  // Payment search & 360° view
+  app.get("/internal/payments/search", async (request, reply) => {
+    const { q } = request.query as { q: string };
+    const rows = await db
+      .selectFrom("payment")
+      .select(["id", "payment_reference", "status", "gross_amount_minor", "channel", "rail", "value_date"])
+      .where((eb) => eb.or([eb("payment_reference", "ilike", `%${q}%`), eb("rail_e2e_id", "ilike", `%${q}%`), eb("switch_stan", "=", q)]))
+      .limit(50)
+      .execute();
+    return reply.code(200).send(rows.map((r) => ({ id: r.id, payment_reference: r.payment_reference, status: r.status, gross_amount_minor: toWireMinor(r.gross_amount_minor), channel: r.channel, rail: r.rail, value_date: r.value_date })));
+  });
+
+  app.get("/internal/payments/:paymentReference/360", async (request, reply) => {
+    const { paymentReference } = request.params as { paymentReference: string };
+    const payment = await db.selectFrom("payment").selectAll().where("payment_reference", "=", paymentReference).executeTakeFirst();
+    if (!payment) return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment "${paymentReference}".`, retryable: false });
+
+    const allocations = await db.selectFrom("payment_allocation").innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id").innerJoin("revenue_head", "revenue_head.id", "payment_allocation.revenue_head_id").select(["assessment.psid", "revenue_head.code as head_code", "payment_allocation.amount_minor", "payment_allocation.status"]).where("payment_allocation.payment_id", "=", payment.id).execute();
+    const journalLines = await db.selectFrom("journal_line").innerJoin("journal_entry", "journal_entry.id", "journal_line.entry_id").select(["journal_entry.entry_no", "journal_entry.event_type", "journal_line.account_code", "journal_line.direction", "journal_line.amount_minor"]).where("journal_entry.source_type", "=", "payment").where("journal_entry.source_id", "=", payment.id).execute();
+    const receipt = await db.selectFrom("receipt").select(["receipt_no", "status"]).where("payment_id", "=", payment.id).executeTakeFirst();
+    const breaks = await db.selectFrom("recon_break").select(["break_code", "status", "amount_minor"]).where("payment_id", "=", payment.id).execute();
+
+    return reply.code(200).send({
+      payment_reference: payment.payment_reference, status: payment.status, gross_amount_minor: toWireMinor(payment.gross_amount_minor), unapplied_amount_minor: toWireMinor(payment.unapplied_amount_minor),
+      channel: payment.channel, rail: payment.rail, value_date: payment.value_date, obligation_discharge_date: payment.obligation_discharge_date, finality: payment.finality,
+      application_trace: payment.application_trace,
+      allocations: allocations.map((a) => ({ psid: a.psid, head_code: a.head_code, amount_minor: toWireMinor(a.amount_minor), status: a.status })),
+      journal_entries: journalLines.map((j) => ({ entry_no: Number(j.entry_no), event_type: j.event_type, account_code: j.account_code, direction: j.direction, amount_minor: toWireMinor(j.amount_minor) })),
+      receipt: receipt ? { receipt_no: receipt.receipt_no, status: receipt.status } : null,
+      recon_breaks: breaks.map((b) => ({ break_code: b.break_code, status: b.status, amount_minor: toWireMinor(b.amount_minor) })),
+    });
+  });
+
+  // Assessment 360° view
+  app.get("/internal/assessments/:psid/360", async (request, reply) => {
+    const { psid } = request.params as { psid: string };
+    const current = await db.selectFrom("assessment").selectAll().where("psid", "=", psid).orderBy("version", "desc").limit(1).executeTakeFirst();
+    if (!current) return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Assessment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No assessment "${psid}".`, retryable: false });
+
+    const versions = await db.selectFrom("assessment").select(["id", "version", "status", "assessed_amount_minor", "payable_amount_minor", "allocated_amount_minor", "balance_minor"]).where("psid", "=", psid).orderBy("version", "asc").execute();
+    const lineItems = await db.selectFrom("assessment_line_item").innerJoin("revenue_head", "revenue_head.id", "assessment_line_item.revenue_head_id").select(["revenue_head.code as head_code", "assessment_line_item.line_type", "assessment_line_item.amount_minor", "assessment_line_item.allocated_minor"]).where("assessment_line_item.assessment_id", "=", current.id).execute();
+    const allocations = await db.selectFrom("payment_allocation").innerJoin("payment", "payment.id", "payment_allocation.payment_id").select(["payment.payment_reference", "payment_allocation.amount_minor", "payment_allocation.status", "payment_allocation.applied_at"]).where("payment_allocation.assessment_id", "=", current.id).execute();
+    const notifications = await db.selectFrom("notification_log").select(["event_type", "channel", "status", "sent_at"]).where("assessment_id", "=", current.id).execute();
+
+    return reply.code(200).send({
+      psid, current_version: current.version, status: current.status,
+      versions: versions.map((v) => ({ version: v.version, status: v.status, assessed_amount_minor: toWireMinor(v.assessed_amount_minor), payable_amount_minor: toWireMinor(v.payable_amount_minor), allocated_amount_minor: toWireMinor(v.allocated_amount_minor), balance_minor: toWireMinor(v.balance_minor) })),
+      line_items: lineItems.map((l) => ({ head_code: l.head_code, line_type: l.line_type, amount_minor: toWireMinor(l.amount_minor), allocated_minor: toWireMinor(l.allocated_minor) })),
+      payment_history: allocations.map((a) => ({ payment_reference: a.payment_reference, amount_minor: toWireMinor(a.amount_minor), status: a.status, applied_at: a.applied_at.toISOString() })),
+      notifications: notifications.map((n) => ({ event_type: n.event_type, channel: n.channel, status: n.status, sent_at: n.sent_at.toISOString() })),
+    });
+  });
+
+  // Payer 360° view
+  app.get("/internal/payers/search", async (request, reply) => {
+    const { q } = request.query as { q: string };
+    const rows = await db.selectFrom("payer").select(["id", "name", "payer_type", "msisdn_e164"]).where("name", "ilike", `%${q}%`).limit(50).execute();
+    return reply.code(200).send(rows);
+  });
+
+  app.get("/internal/payers/:payerId/360", async (request, reply) => {
+    const { payerId } = request.params as { payerId: string };
+    const payer = await db.selectFrom("payer").selectAll().where("id", "=", payerId).executeTakeFirst();
+    if (!payer) return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payer not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payer "${payerId}".`, retryable: false });
+
+    const accounts = await db.selectFrom("payer_account").innerJoin("agency", "agency.id", "payer_account.agency_id").select(["agency.code as agency_code", "payer_account.crn", "payer_account.status"]).where("payer_account.payer_id", "=", payerId).execute();
+    const assessments = await db.selectFrom("assessment").select(["psid", "status", "balance_minor"]).where("payer_id", "=", payerId).execute();
+    // `payment` has no direct payer_id column — the real link is via the
+    // assessment(s) it settled (payment_allocation -> assessment.payer_id).
+    const payments = await db
+      .selectFrom("payment")
+      .innerJoin("payment_allocation", "payment_allocation.payment_id", "payment.id")
+      .innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id")
+      .select(["payment.payment_reference", "payment.status", "payment.gross_amount_minor"])
+      .where("assessment.payer_id", "=", payerId)
+      .distinct()
+      .execute();
+    const refunds = await db
+      .selectFrom("refund")
+      .innerJoin("payment", "payment.id", "refund.payment_id")
+      .innerJoin("payment_allocation", "payment_allocation.payment_id", "payment.id")
+      .innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id")
+      .select(["refund.refund_reference", "refund.status", "refund.amount_minor"])
+      .where("assessment.payer_id", "=", payerId)
+      .distinct()
+      .execute();
+    const mandates = await db.selectFrom("mandate").select(["mandate_reference", "status", "max_amount_minor"]).where("payer_id", "=", payerId).execute();
+
+    return reply.code(200).send({
+      payer_id: payer.id, name: payer.name, payer_type: payer.payer_type, risk_rating: payer.risk_rating,
+      accounts: accounts.map((a) => ({ agency_code: a.agency_code, crn: a.crn, status: a.status })),
+      assessments: assessments.map((a) => ({ psid: a.psid, status: a.status, balance_minor: toWireMinor(a.balance_minor) })),
+      payments: payments.map((p) => ({ payment_reference: p.payment_reference, status: p.status, gross_amount_minor: toWireMinor(p.gross_amount_minor) })),
+      refunds: refunds.map((r) => ({ refund_reference: r.refund_reference, status: r.status, amount_minor: toWireMinor(r.amount_minor) })),
+      mandates: mandates.map((m) => ({ mandate_reference: m.mandate_reference, status: m.status, max_amount_minor: toWireMinor(m.max_amount_minor) })),
+    });
+  });
+
+  // Unapplied receipts queue
+  app.get("/internal/unapplied-receipts", async (_request, reply) => {
+    const rows = await db.selectFrom("payment").select(["payment_reference", "unapplied_amount_minor", "value_date", "channel", "rail", "remittance_raw"]).where("unapplied_amount_minor", ">", 0n).where("status", "=", "CONFIRMED").execute();
+    return reply.code(200).send(rows.map((r) => ({ payment_reference: r.payment_reference, amount_minor: toWireMinor(r.unapplied_amount_minor), value_date: r.value_date, channel: r.channel, rail: r.rail, remittance_raw: r.remittance_raw })));
+  });
+
+  // UNCERTAIN payments queue
+  app.get("/internal/payments/uncertain", async (_request, reply) => {
+    const rows = await db.selectFrom("payment").select(["payment_reference", "gross_amount_minor", "channel", "rail", "received_at", "uncertain_resolution_source"]).where("status", "=", "UNCERTAIN").execute();
+    return reply.code(200).send(rows.map((r) => ({ payment_reference: r.payment_reference, gross_amount_minor: toWireMinor(r.gross_amount_minor), channel: r.channel, rail: r.rail, received_at: r.received_at.toISOString(), uncertain_resolution_source: r.uncertain_resolution_source })));
+  });
+
+  // (resolve-uncertain for this same path already exists above, registered
+  // during Phase 2 — reused as-is by the UNCERTAIN queue screen rather than
+  // duplicated here.)
+
+  // Teller / till
+  app.post("/internal/till/capture-cash", async (request, reply) => {
+    const body = request.body as { psid: string; amount_minor: number; value_date: string };
+    const result = await capturePayment(db, { paymentReference: "", channel: "OTC", rail: "CASH", grossAmountMinor: BigInt(body.amount_minor), valueDate: body.value_date, obligationDischargeDate: body.value_date, explicitAllocations: [{ psid: body.psid, amountMinor: BigInt(body.amount_minor) }], captureOutcome: "CONFIRMED" }, clock);
+    return reply.code(200).send({ payment_id: result.paymentId, status: result.status, settled_assessment_ids: result.settledAssessmentIds });
+  });
+
+  app.post("/internal/till/reverse/:paymentReference", async (request, reply) => {
+    const { paymentReference } = request.params as { paymentReference: string };
+    const { reason } = request.body as { reason: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", paymentReference).executeTakeFirstOrThrow();
+    await reversePayment(db, payment.id, reason, { actorType: "USER", actorId: "teller" }, clock);
+    return reply.code(200).send({ status: "REVERSED" });
+  });
+
+  app.post("/internal/till/close", async (request, reply) => {
+    const { business_date, counted_amount_minor } = request.body as { business_date: string; counted_amount_minor: number };
+    const expected = await db.selectFrom("payment").select(({ fn }) => fn.sum<bigint>("gross_amount_minor").as("total")).where("rail", "=", "CASH").where("value_date", "=", business_date).where("status", "=", "CONFIRMED").executeTakeFirst();
+    const expectedMinor = BigInt(expected?.total ?? 0n);
+    const countedMinor = BigInt(counted_amount_minor);
+    const diff = countedMinor - expectedMinor;
+    if (diff !== 0n) {
+      await db.transaction().execute(async (trx) => {
+        const tillCode = await getOrCreateLedgerAccount(trx, { baseCode: "1010", dimensionKey: "TELLER-01", name: "Cash in Till", accountType: "ASSET", normalBalance: "DR" });
+        const overShortCode = await getOrCreateLedgerAccount(trx, { baseCode: "5900", dimensionKey: "PLATFORM", name: "Cash Over/Short", accountType: "EXPENSE", normalBalance: "DR" });
+        await postJournalTemplate(trx, diff > 0n
+          ? { eventType: "TILL_OVER", debitAccountCode: tillCode, creditAccountCode: overShortCode, amountMinor: diff, sourceType: "till_close", sourceId: `${business_date}:TELLER-01`, valueDate: business_date }
+          : { eventType: "TILL_SHORT", debitAccountCode: overShortCode, creditAccountCode: tillCode, amountMinor: -diff, sourceType: "till_close", sourceId: `${business_date}:TELLER-01`, valueDate: business_date },
+          clock);
+      });
+    }
+    return reply.code(200).send({ expected_minor: toWireMinor(expectedMinor), counted_minor: toWireMinor(countedMinor), difference_minor: toWireMinor(diff) });
+  });
+
+  // Settlement & sweep screen
+  app.get("/internal/settlement/overview", async (request, reply) => {
+    const { business_date } = request.query as { business_date: string };
+    const overview = await reports.r05SettlementSweepReport(db, business_date);
+    return reply.code(200).send(serializeReport(overview));
+  });
+
+  // Approvals inbox
+  app.get("/internal/approvals", async (request, reply) => {
+    const { state } = request.query as { state?: string };
+    let q = db.selectFrom("approval").selectAll().orderBy("maker_at", "desc").limit(50);
+    if (state) q = q.where("state", "=", state as never);
+    const rows = await q.execute();
+    const withRefund = await Promise.all(
+      rows.map(async (r) => {
+        const refund = r.subject_type === "refund" ? await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["refund.refund_reference", "refund.mode", "payment.payment_reference"]).where("refund.id", "=", r.subject_id).executeTakeFirst() : undefined;
+        return { id: r.id, subject_type: r.subject_type, action: r.action, amount_minor: r.amount_minor !== null ? toWireMinor(r.amount_minor) : null, state: r.state, maker_user_id: r.maker_user_id, maker_at: r.maker_at.toISOString(), refund_preview: refund ?? null };
+      }),
+    );
+    return reply.code(200).send(withRefund);
+  });
+
+  // Agency & product configuration
+  app.get("/internal/agencies", async (_request, reply) => {
+    const rows = await db.selectFrom("agency").select(["code", "name", "tier", "settlement_model", "sweep_schedule", "status"]).execute();
+    return reply.code(200).send(rows);
+  });
+
+  app.get("/internal/products", async (request, reply) => {
+    const { agency_code } = request.query as { agency_code?: string };
+    let q = db.selectFrom("collection_product").innerJoin("agency", "agency.id", "collection_product.agency_id").select(["agency.code as agency_code", "collection_product.code", "collection_product.category", "collection_product.status", "collection_product.overpay_treatment", "collection_product.allocation_waterfall"]);
+    if (agency_code) q = q.where("agency.code", "=", agency_code);
+    const rows = await q.execute();
+    return reply.code(200).send(rows);
+  });
+
+  // Recon run console
+  app.get("/internal/recon/runs", async (_request, reply) => {
+    const rows = await db.selectFrom("recon_run").selectAll().orderBy("business_date", "desc").limit(50).execute();
+    const withBreakCounts = await Promise.all(
+      rows.map(async (r) => {
+        const breaks = await db.selectFrom("recon_break").select(({ fn }) => fn.countAll().as("c")).where("run_id", "=", r.id).executeTakeFirstOrThrow();
+        return { id: r.id, business_date: r.business_date, recon_type: r.recon_type, status: r.status, break_count: Number(breaks.c) };
+      }),
+    );
+    return reply.code(200).send(withBreakCounts);
+  });
+
+  // Audit explorer
+  app.get("/internal/audit", async (request, reply) => {
+    const { entity_type, entity_id, limit } = request.query as { entity_type?: string; entity_id?: string; limit?: string };
+    let q = db.selectFrom("audit_log").selectAll().orderBy("occurred_at", "desc").limit(limit ? Number(limit) : 50);
+    if (entity_type) q = q.where("entity_type", "=", entity_type);
+    if (entity_id) q = q.where("entity_id", "=", entity_id);
+    const rows = await q.execute();
+    return reply.code(200).send(rows.map((r) => ({ id: Number(r.id), actor_type: r.actor_type, actor_id: r.actor_id, action: r.action, entity_type: r.entity_type, entity_id: r.entity_id, occurred_at: r.occurred_at.toISOString(), before_json: r.before_json, after_json: r.after_json })));
+  });
+
+  app.get("/internal/audit/verify-chain", async (_request, reply) => {
+    const brokenAt = await verifyAuditChain(db);
+    return reply.code(200).send({ intact: brokenAt === null, break: brokenAt });
   });
 
   return app;
