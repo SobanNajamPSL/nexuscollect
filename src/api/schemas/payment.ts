@@ -57,6 +57,13 @@ export const confirmPaymentRequestSchema = {
     // Test/demo-only: no real rail exists to poll for a capture outcome, so
     // callers state what it resolved to (see modules/payment's own doc comment).
     capture_outcome: { type: "string", enum: ["CONFIRMED", "UNCERTAIN", "FAILED"] },
+    // §8.12/§14.1: someone paying another's obligation (a lawyer, an agent,
+    // a family member). Optional — most payments have no third party.
+    third_party_payer: {
+      type: "object",
+      required: ["name", "masked_id", "relationship"],
+      properties: { name: { type: "string" }, masked_id: { type: "string" }, relationship: { type: "string" } },
+    },
   },
 } as const;
 

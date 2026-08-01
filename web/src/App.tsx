@@ -28,6 +28,7 @@ const OPS_NAV = [
   { to: "/ops/rtp", label: "Request to Pay" },
   { to: "/ops/refunds", label: "Refunds" },
   { to: "/ops/bulk-payments", label: "Bulk Payments" },
+  { to: "/ops/disputes", label: "Disputes" },
 ];
 
 export default function App() {

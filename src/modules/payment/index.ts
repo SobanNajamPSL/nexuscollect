@@ -113,6 +113,12 @@ export interface CapturePaymentInput {
   switchRrn?: string;
   acquirerId?: string;
   instrumentId?: string;
+  /** §8.12/§14.1's third-party payer: someone (a lawyer, an agent, a family
+   * member) paying another's obligation. The obligation and any refund stay
+   * with the original account debited (`payerAccountMasked`, already the
+   * remitter's) — this field only carries who they were and their relationship,
+   * for receipt disclosure ("Received from X on behalf of Y") and evidence. */
+  thirdPartyPayer?: { name: string; maskedId: string; relationship: string };
   /** No real rail exists to call in this demo — the caller (a test, or a
    * simulated webhook) states what the capture attempt resolved to. Real
    * production code would get this from the rail's own response; §9.4's
@@ -146,6 +152,7 @@ interface AssessmentContext {
   underpayToleranceMinor: bigint;
   overpayToleranceMinor: bigint;
   overpayTreatment: "REJECT" | "CREDIT_ON_ACCOUNT" | "AUTO_REFUND" | "ABSORB";
+  isRefundableDeposit: boolean;
 }
 
 async function loadAssessmentContext(db: Kysely<Database>, assessmentId: string): Promise<AssessmentContext> {
@@ -158,6 +165,7 @@ async function loadAssessmentContext(db: Kysely<Database>, assessmentId: string)
       "agency.code as agency_code",
       "collection_product.allocation_waterfall", "collection_product.allow_partial", "collection_product.underpay_policy",
       "collection_product.underpay_tolerance_minor", "collection_product.overpay_tolerance_minor", "collection_product.overpay_treatment",
+      "collection_product.deposit_refundable",
     ])
     .where("assessment.id", "=", assessmentId)
     .executeTakeFirstOrThrow();
@@ -166,6 +174,7 @@ async function loadAssessmentContext(db: Kysely<Database>, assessmentId: string)
     payableAmountMinor: row.payable_amount_minor, productId: row.product_id, waterfall: row.allocation_waterfall,
     allowPartial: row.allow_partial, underpayPolicy: row.underpay_policy, underpayToleranceMinor: row.underpay_tolerance_minor,
     overpayToleranceMinor: row.overpay_tolerance_minor, overpayTreatment: row.overpay_treatment,
+    isRefundableDeposit: row.deposit_refundable,
   };
 }
 
@@ -193,7 +202,7 @@ interface RunAllocationParams {
 interface RunAllocationResult {
   unappliedAmountMinor: bigint;
   settledAssessmentIds: string[];
-  journalPostings: { assessmentId: string; agencyId: string; agencyCode: string; amountMinor: bigint }[];
+  journalPostings: { assessmentId: string; agencyId: string; agencyCode: string; amountMinor: bigint; isRefundableDeposit: boolean }[];
   derivationMethod: string;
   candidateAssessmentIds: string[];
 }
@@ -247,7 +256,7 @@ async function runAllocation(trx: Transaction<Database>, paymentId: string, para
 
   let unappliedAmountMinor = params.grossAmountMinor;
   const settledAssessmentIds: string[] = [];
-  const journalPostings: { assessmentId: string; agencyId: string; agencyCode: string; amountMinor: bigint }[] = [];
+  const journalPostings: { assessmentId: string; agencyId: string; agencyCode: string; amountMinor: bigint; isRefundableDeposit: boolean }[] = [];
 
   if (candidateAssessmentIds.length === 0) {
     const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: "1150", dimensionKey: params.rail, name: "Rail Settlement Receivable", accountType: "ASSET", normalBalance: "DR" });
@@ -325,7 +334,7 @@ async function runAllocation(trx: Transaction<Database>, paymentId: string, para
     // HOLD_AS_UNAPPLIED / REJECT_AND_RETURN: money that couldn't settle the
     // bill stays on the payment as unapplied — no assessment status change.
 
-    journalPostings.push({ assessmentId, agencyId: ctx.agencyId, agencyCode: ctx.agencyCode, amountMinor: allocatedTotal });
+    journalPostings.push({ assessmentId, agencyId: ctx.agencyId, agencyCode: ctx.agencyCode, amountMinor: allocatedTotal, isRefundableDeposit: ctx.isRefundableDeposit });
   }
 
   // Each posting here shares one payment's sourceId and (for a single-rail
@@ -339,9 +348,15 @@ async function runAllocation(trx: Transaction<Database>, paymentId: string, para
   for (const [i, posting] of journalPostings.entries()) {
     const debitBaseCode = params.rail === "CASH" ? "1010" : params.rail === "CHEQUE_CLEARING" ? "1030" : "1150";
     const debitCode = await getOrCreateLedgerAccount(trx, { baseCode: debitBaseCode, dimensionKey: params.rail, name: "Collection Receivable", accountType: "ASSET", normalBalance: "DR" });
-    const creditCode = await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: posting.agencyCode, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: posting.agencyId });
+    // §14.6/T26: a refundable deposit (tender security, litigation deposit)
+    // is not revenue — it is a liability of the government to the depositor,
+    // and must land in 2040, never 2010, or the department's balance sheet
+    // cannot explain itself.
+    const creditCode = posting.isRefundableDeposit
+      ? await getOrCreateLedgerAccount(trx, { baseCode: "2040", dimensionKey: posting.agencyCode, name: "Refundable Deposits", accountType: "LIABILITY", normalBalance: "CR", agencyId: posting.agencyId })
+      : await getOrCreateLedgerAccount(trx, { baseCode: "2010", dimensionKey: posting.agencyCode, name: "Agency Payable", accountType: "LIABILITY", normalBalance: "CR", agencyId: posting.agencyId });
     await postJournalEntry(trx, {
-      eventType: params.rail === "CASH" ? "COLLECT_CASH_OTC" : "COLLECT_RAIL_CONFIRMED",
+      eventType: posting.isRefundableDeposit ? "DEPOSIT_RECEIVED" : params.rail === "CASH" ? "COLLECT_CASH_OTC" : "COLLECT_RAIL_CONFIRMED",
       sourceType: "payment", sourceId: paymentId, sequence: i + 1, agencyId: posting.agencyId, valueDate: params.valueDate,
       lines: [
         { seq: 1, accountCode: debitCode, direction: "DR", amountMinor: posting.amountMinor },
@@ -411,6 +426,7 @@ export async function capturePayment(db: Kysely<Database>, input: CapturePayment
           ...(input.switchRrn ? { switch_rrn: input.switchRrn } : {}), ...(input.acquirerId ? { acquirer_id: input.acquirerId } : {}),
           ...(input.instrumentId ? { instrument_id: input.instrumentId } : {}), ...(input.payerAccountMasked ? { payer_account_masked: input.payerAccountMasked } : {}),
           ...(input.payerBankBic ? { payer_bank_bic: input.payerBankBic } : {}), ...(input.remittanceRaw ? { remittance_raw: input.remittanceRaw } : {}),
+          ...(input.thirdPartyPayer ? { metadata: JSON.stringify({ thirdPartyPayer: input.thirdPartyPayer }) as never } : {}),
           application_trace: JSON.stringify(trace) as never,
         })
         .execute();
@@ -431,6 +447,7 @@ export async function capturePayment(db: Kysely<Database>, input: CapturePayment
         ...(input.switchRrn ? { switch_rrn: input.switchRrn } : {}), ...(input.acquirerId ? { acquirer_id: input.acquirerId } : {}),
         ...(input.instrumentId ? { instrument_id: input.instrumentId } : {}), ...(input.payerAccountMasked ? { payer_account_masked: input.payerAccountMasked } : {}),
         ...(input.payerBankBic ? { payer_bank_bic: input.payerBankBic } : {}), ...(input.remittanceRaw ? { remittance_raw: input.remittanceRaw } : {}),
+        ...(input.thirdPartyPayer ? { metadata: JSON.stringify({ thirdPartyPayer: input.thirdPartyPayer }) as never } : {}),
       })
       .execute();
 

@@ -25,6 +25,7 @@ import AuditExplorer from "./pages/AuditExplorer.js";
 import RequestToPay from "./pages/RequestToPay.js";
 import Refunds from "./pages/Refunds.js";
 import BulkPayments from "./pages/BulkPayments.js";
+import DisputeConsole from "./pages/DisputeConsole.js";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -53,6 +54,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="ops/rtp" element={<RequestToPay />} />
           <Route path="ops/refunds" element={<Refunds />} />
           <Route path="ops/bulk-payments" element={<BulkPayments />} />
+          <Route path="ops/disputes" element={<DisputeConsole />} />
         </Route>
       </Routes>
     </BrowserRouter>

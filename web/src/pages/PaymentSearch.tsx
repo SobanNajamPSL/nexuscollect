@@ -10,6 +10,7 @@ interface Payment360 {
   journal_entries: { entry_no: number; event_type: string; account_code: string; direction: string; amount_minor: number }[];
   receipt: { receipt_no: string; status: string } | null;
   recon_breaks: { break_code: string; status: string; amount_minor: number }[];
+  third_party_payer: { name: string; maskedId: string; relationship: string } | null;
 }
 
 export default function PaymentSearch() {
@@ -99,6 +100,11 @@ export default function PaymentSearch() {
                 <button className="btn-secondary text-xs" disabled={recalling} onClick={recall}>Recall payment</button>
               </div>
             </div>
+            {detail.third_party_payer && (
+              <div className="mt-3 text-sm bg-blue-50 text-blue-900 rounded p-2">
+                Received from <strong>{detail.third_party_payer.name}</strong> ({detail.third_party_payer.maskedId}, {detail.third_party_payer.relationship}) on behalf of the assessment's payer. Any refund defaults to this account, not the taxpayer's.
+              </div>
+            )}
             {recallOutcome && (
               <div className="mt-3 text-sm bg-gray-50 rounded p-2">
                 Recall outcome: <span className="font-medium">{recallOutcome.outcome}</span>

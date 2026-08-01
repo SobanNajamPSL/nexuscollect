@@ -34,6 +34,8 @@ import { generateScroll, runSweep, closePeriod, runPreCloseChecks, recordAgencyS
 import { createRefund, approveRefund, payRefund, SelfApprovalError } from "../modules/refund/index.js";
 import { validateBulkFile, confirmBulkBatch, BulkBatchNotValidatedError } from "../modules/bulk/index.js";
 import { receiveRecall } from "../modules/recall/index.js";
+import { receiveDispute, assembleEvidenceBundle, resolveDispute } from "../modules/dispute/index.js";
+import { refundDeposit, exitDepositToRevenue } from "../modules/deposit/index.js";
 import { createMandate, collectUnderMandate } from "../modules/mandate/index.js";
 import { captureCardPayment } from "../adapters/rails/card/index.js";
 import { captureWalletPayment } from "../adapters/rails/wallet/index.js";
@@ -492,6 +494,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         payer_account_masked?: string; payer_bank_bic?: string; remittance_raw?: string;
         explicit_allocations?: { psid: string; line_type?: string; revenue_head_code?: string; amount_minor: number }[];
         capture_outcome?: "CONFIRMED" | "UNCERTAIN" | "FAILED";
+        third_party_payer?: { name: string; masked_id: string; relationship: string };
       };
 
       try {
@@ -509,6 +512,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               ...(body.payer_bank_bic ? { payerBankBic: body.payer_bank_bic } : {}), ...(body.remittance_raw ? { remittanceRaw: body.remittance_raw } : {}),
               ...(body.explicit_allocations ? { explicitAllocations: body.explicit_allocations.map((a) => ({ psid: a.psid, ...(a.line_type ? { lineType: a.line_type } : {}), ...(a.revenue_head_code ? { revenueHeadCode: a.revenue_head_code } : {}), amountMinor: BigInt(a.amount_minor) })) } : {}),
               ...(body.capture_outcome ? { captureOutcome: body.capture_outcome } : {}),
+              ...(body.third_party_payer ? { thirdPartyPayer: { name: body.third_party_payer.name, maskedId: body.third_party_payer.masked_id, relationship: body.third_party_payer.relationship } } : {}),
             },
             clock,
           );
@@ -995,6 +999,57 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return reply.code(200).send({ recall_id: result.recallId, outcome: result.outcome, camt029_reason: result.camt029Reason });
   });
 
+  // --- Phase 8: dispute / chargeback (§14.7) ---
+
+  app.get("/internal/disputes", async (_request, reply) => {
+    const rows = await db
+      .selectFrom("dispute")
+      .innerJoin("payment", "payment.id", "dispute.payment_id")
+      .select(["dispute.id", "payment.payment_reference", "dispute.scheme_reason_code", "dispute.amount_minor", "dispute.status", "dispute.liability", "dispute.created_at"])
+      .orderBy("dispute.created_at", "desc")
+      .limit(50)
+      .execute();
+    return reply.code(200).send(rows.map((r) => ({ id: r.id, payment_reference: r.payment_reference, scheme_reason_code: r.scheme_reason_code, amount_minor: toWireMinor(r.amount_minor), status: r.status, liability: r.liability, created_at: r.created_at.toISOString() })));
+  });
+
+  app.post("/internal/disputes", async (request, reply) => {
+    const body = request.body as { payment_reference: string; scheme_reason_code: string; amount_minor: number; representment_deadline?: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", body.payment_reference).executeTakeFirstOrThrow();
+    const result = await receiveDispute(db, { paymentId: payment.id, schemeReasonCode: body.scheme_reason_code, amountMinor: BigInt(body.amount_minor), ...(body.representment_deadline ? { representmentDeadline: body.representment_deadline } : {}) }, clock);
+    return reply.code(201).send({ dispute_id: result.disputeId });
+  });
+
+  app.post("/internal/disputes/:disputeId/evidence", async (request, reply) => {
+    const { disputeId } = request.params as { disputeId: string };
+    const bundle = await assembleEvidenceBundle(db, disputeId, clock);
+    return reply.code(200).send({ evidence_bundle: bundle });
+  });
+
+  app.post("/internal/disputes/:disputeId/resolve", async (request, reply) => {
+    const { disputeId } = request.params as { disputeId: string };
+    const { outcome, liability } = request.body as { outcome: "WON" | "LOST"; liability: "OPERATOR" | "AGENCY" | "SHARED" };
+    await resolveDispute(db, disputeId, outcome, liability, clock);
+    return reply.code(200).send({ status: outcome });
+  });
+
+  // --- Phase 8: refundable deposit lifecycle (§14.6) ---
+
+  app.post("/internal/deposits/:paymentReference/refund", async (request, reply) => {
+    const { paymentReference } = request.params as { paymentReference: string };
+    const { actor_id } = request.body as { actor_id?: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", paymentReference).executeTakeFirstOrThrow();
+    await refundDeposit(db, payment.id, actor_id ?? "deposit-ops", clock);
+    return reply.code(200).send({ status: "REFUNDED" });
+  });
+
+  app.post("/internal/deposits/:paymentReference/exit", async (request, reply) => {
+    const { paymentReference } = request.params as { paymentReference: string };
+    const { exit, actor_id } = request.body as { exit: "FORFEITED" | "CONVERTED_TO_REVENUE"; actor_id?: string };
+    const payment = await db.selectFrom("payment").select("id").where("payment_reference", "=", paymentReference).executeTakeFirstOrThrow();
+    await exitDepositToRevenue(db, payment.id, exit, actor_id ?? "deposit-ops", clock);
+    return reply.code(200).send({ status: exit });
+  });
+
   app.post("/internal/mandates", async (request, reply) => {
     const body = request.body as { payer_reference: string; product_code: string; max_amount_minor: number; frequency: "MONTHLY" | "QUARTERLY" | "ANNUAL"; first_collection_date: string };
     const payer = await db.selectFrom("payer").select("id").where("id", "=", body.payer_reference).executeTakeFirst();
@@ -1181,6 +1236,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       journal_entries: journalLines.map((j) => ({ entry_no: Number(j.entry_no), event_type: j.event_type, account_code: j.account_code, direction: j.direction, amount_minor: toWireMinor(j.amount_minor) })),
       receipt: receipt ? { receipt_no: receipt.receipt_no, status: receipt.status } : null,
       recon_breaks: breaks.map((b) => ({ break_code: b.break_code, status: b.status, amount_minor: toWireMinor(b.amount_minor) })),
+      third_party_payer: (payment.metadata as { thirdPartyPayer?: { name: string; maskedId: string; relationship: string } } | null)?.thirdPartyPayer ?? null,
     });
   });
 

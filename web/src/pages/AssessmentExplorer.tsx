@@ -13,12 +13,34 @@ export default function AssessmentExplorer() {
   const [psid, setPsid] = useState("");
   const [data, setData] = useState<Assessment360 | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [depositResult, setDepositResult] = useState<string | null>(null);
 
   async function load() {
     setError(null);
     setData(null);
     try {
       setData(await api.get<Assessment360>(`/internal/assessments/${encodeURIComponent(psid)}/360`));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  // §14.6: only meaningful for a payment against a refundable-deposit
+  // product (e.g. a tender/litigation security). Exposed per-payment here
+  // rather than gated on a flag this view doesn't have, since the backend
+  // itself validates the payment is a real applied deposit allocation.
+  async function depositAction(paymentReference: string, action: "refund" | "forfeit" | "convert") {
+    setDepositResult(null);
+    setError(null);
+    try {
+      if (action === "refund") {
+        await api.post(`/internal/deposits/${paymentReference}/refund`, {});
+        setDepositResult(`${paymentReference}: refunded to depositor`);
+      } else {
+        await api.post(`/internal/deposits/${paymentReference}/exit`, { exit: action === "forfeit" ? "FORFEITED" : "CONVERTED_TO_REVENUE" });
+        setDepositResult(`${paymentReference}: ${action === "forfeit" ? "forfeited" : "converted to revenue"}`);
+      }
+      await load();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -83,9 +105,20 @@ export default function AssessmentExplorer() {
               <div className="p-3 font-semibold bg-gray-50">Payment history</div>
               <div className="divide-y divide-gov-border">
                 {data.payment_history.map((p, i) => (
-                  <div key={i} className="p-3 text-sm flex justify-between"><span>{p.payment_reference}</span><span>PKR {formatPKR(p.amount_minor)} ({p.status})</span></div>
+                  <div key={i} className="p-3 text-sm space-y-1">
+                    <div className="flex justify-between"><span>{p.payment_reference}</span><span>PKR {formatPKR(p.amount_minor)} ({p.status})</span></div>
+                    {p.status === "CONFIRMED" && (
+                      <div className="flex gap-1 text-xs">
+                        <span className="text-gov-ink/50 self-center">If this is a refundable deposit:</span>
+                        <button className="btn-secondary text-xs" onClick={() => depositAction(p.payment_reference, "refund")}>Refund</button>
+                        <button className="btn-secondary text-xs" onClick={() => depositAction(p.payment_reference, "forfeit")}>Forfeit</button>
+                        <button className="btn-secondary text-xs" onClick={() => depositAction(p.payment_reference, "convert")}>Convert to revenue</button>
+                      </div>
+                    )}
+                  </div>
                 ))}
                 {data.payment_history.length === 0 && <div className="p-3 text-sm text-gov-ink/60">No payments yet.</div>}
+                {depositResult && <div className="p-3 text-xs bg-gray-50">{depositResult}</div>}
               </div>
             </div>
             <div className="card">
