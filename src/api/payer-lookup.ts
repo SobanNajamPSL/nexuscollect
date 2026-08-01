@@ -1,6 +1,7 @@
 import type { Kysely } from "kysely";
 import type { Database } from "../db/schema.js";
 import { hashPrimaryId, encryptPrimaryId } from "../modules/identity/pii.js";
+import type { Clock } from "../platform/clock/index.js";
 
 export interface PayerInput {
   payer_type?: "INDIVIDUAL" | "SOLE_PROPRIETOR" | "AOP" | "COMPANY" | "GOVERNMENT" | "NON_RESIDENT";
@@ -13,7 +14,7 @@ export interface PayerInput {
 
 /** createAssessment's `payer_id` (existing payer) or inline `payer` (find-or-create
  * by primary_id_hash, same keyed-hash lookup the resolve identity path uses). */
-export async function resolvePayer(db: Kysely<Database>, payerId: string | undefined, payer: PayerInput | undefined): Promise<string | undefined> {
+export async function resolvePayer(db: Kysely<Database>, payerId: string | undefined, payer: PayerInput | undefined, clock: Clock): Promise<string | undefined> {
   if (payerId) return payerId;
   if (!payer?.primary_id_type || !payer.primary_id_value || !payer.name) return undefined;
 
@@ -32,6 +33,7 @@ export async function resolvePayer(db: Kysely<Database>, payerId: string | undef
       name: payer.name,
       msisdn_e164: payer.msisdn_e164 ?? null,
       email: payer.email ?? null,
+      created_at: clock.now(),
     })
     .returning(["id"])
     .executeTakeFirstOrThrow();

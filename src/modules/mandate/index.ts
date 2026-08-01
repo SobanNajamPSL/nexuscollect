@@ -80,6 +80,7 @@ export async function collectUnderMandate(
       amount_modifiable: false,
       expires_at: new Date(clock.now().getTime() + 24 * 60 * 60 * 1000),
       status: "CREATED",
+      created_at: clock.now(),
     })
     .returning("id")
     .executeTakeFirstOrThrow();

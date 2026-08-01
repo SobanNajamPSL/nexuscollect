@@ -306,6 +306,7 @@ export async function createRtp(db: Kysely<Database>, input: CreateRtpInput, clo
         amount_modifiable: input.amountModifiable ?? false,
         expires_at: expiresAt,
         status: "CREATED",
+        created_at: now,
       })
       .execute();
 

@@ -56,7 +56,7 @@ export async function createProduct(db: Kysely<Database>, input: CreateProductIn
       .returning("id")
       .executeTakeFirstOrThrow();
 
-    await trx.insertInto("approval").values({ subject_type: "collection_product", subject_id: inserted.id, action: "CREATE_PRODUCT", amount_minor: null, payload: JSON.stringify({ code: input.code, name: input.name }) as never, maker_user_id: input.actorId, state: "PENDING" }).execute();
+    await trx.insertInto("approval").values({ subject_type: "collection_product", subject_id: inserted.id, action: "CREATE_PRODUCT", amount_minor: null, payload: JSON.stringify({ code: input.code, name: input.name }) as never, maker_user_id: input.actorId, state: "PENDING", maker_at: clock.now() }).execute();
     await appendAuditEntry(trx, { actorType: "USER", actorId: input.actorId, action: "product.created", entityType: "collection_product", entityId: inserted.id, afterJson: { code: input.code, status: "PENDING_APPROVAL" } }, clock);
     await appendOutboxEvent(trx, { aggregateType: "collection_product", aggregateId: inserted.id, sequence: 1, eventType: "product.created", payload: { productId: inserted.id, code: input.code } }, clock);
 

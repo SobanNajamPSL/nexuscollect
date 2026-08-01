@@ -73,7 +73,7 @@ async function attemptDelivery(
   if (result.ok) {
     await db
       .insertInto("webhook_delivery")
-      .values({ subscription_id: subscription.id, event_id: event.eventId, attempt_no: attemptNo, status: "DELIVERED", next_attempt_at: clock.now(), last_response_code: result.status, delivered_at: clock.now() })
+      .values({ subscription_id: subscription.id, event_id: event.eventId, attempt_no: attemptNo, status: "DELIVERED", next_attempt_at: clock.now(), last_response_code: result.status, delivered_at: clock.now(), created_at: clock.now() })
       .onConflict((oc) => oc.columns(["subscription_id", "event_id"]).doUpdateSet({ status: "DELIVERED", last_response_code: result.status, delivered_at: clock.now() }))
       .execute();
     await db.updateTable("webhook_subscription").set({ consecutive_failures: 0 }).where("id", "=", subscription.id).execute();
@@ -86,7 +86,7 @@ async function attemptDelivery(
 
   await db
     .insertInto("webhook_delivery")
-    .values({ subscription_id: subscription.id, event_id: event.eventId, attempt_no: nextAttemptNo, status: isDead ? "DEAD_LETTERED" : "PENDING", next_attempt_at: nextAttemptAt, last_response_code: result.status || null, last_error: result.status === 0 ? "timeout or connection error" : `HTTP ${result.status}` })
+    .values({ subscription_id: subscription.id, event_id: event.eventId, attempt_no: nextAttemptNo, status: isDead ? "DEAD_LETTERED" : "PENDING", next_attempt_at: nextAttemptAt, last_response_code: result.status || null, last_error: result.status === 0 ? "timeout or connection error" : `HTTP ${result.status}`, created_at: clock.now() })
     .onConflict((oc) => oc.columns(["subscription_id", "event_id"]).doUpdateSet({ attempt_no: nextAttemptNo, status: isDead ? "DEAD_LETTERED" : "PENDING", next_attempt_at: nextAttemptAt, last_response_code: result.status || null }))
     .execute();
 
@@ -149,7 +149,7 @@ export async function replayWebhooks(db: Kysely<Database>, subscriptionId: strin
   return rows.length;
 }
 
-export async function createWebhookSubscription(db: Kysely<Database>, url: string, secret: string, agencyId?: string): Promise<string> {
-  const inserted = await db.insertInto("webhook_subscription").values({ url, secret_current: secret, ...(agencyId ? { agency_id: agencyId } : {}) }).returning("id").executeTakeFirstOrThrow();
+export async function createWebhookSubscription(db: Kysely<Database>, url: string, secret: string, clock: Clock, agencyId?: string): Promise<string> {
+  const inserted = await db.insertInto("webhook_subscription").values({ url, secret_current: secret, created_at: clock.now(), ...(agencyId ? { agency_id: agencyId } : {}) }).returning("id").executeTakeFirstOrThrow();
   return inserted.id;
 }

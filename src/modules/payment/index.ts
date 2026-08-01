@@ -80,6 +80,7 @@ export async function createPaymentIntent(db: Kysely<Database>, input: CreatePay
       requested_allocations: JSON.stringify(verification.claims.payables) as never,
       quote_expires_at: quoteExpiresAt,
       status: "CREATED",
+      created_at: clock.now(),
     })
     .returning(["id"])
     .executeTakeFirstOrThrow();
@@ -307,7 +308,7 @@ async function runAllocation(trx: Transaction<Database>, paymentId: string, para
 
     for (const alloc of allocations) {
       const lineItem = await trx.selectFrom("assessment_line_item").select("revenue_head_id").where("id", "=", alloc.lineItemId).executeTakeFirstOrThrow();
-      await trx.insertInto("payment_allocation").values({ payment_id: paymentId, assessment_id: assessmentId, line_item_id: alloc.lineItemId, revenue_head_id: lineItem.revenue_head_id, amount_minor: alloc.amountMinor, allocation_basis: alloc.basis }).execute();
+      await trx.insertInto("payment_allocation").values({ payment_id: paymentId, assessment_id: assessmentId, line_item_id: alloc.lineItemId, revenue_head_id: lineItem.revenue_head_id, amount_minor: alloc.amountMinor, allocation_basis: alloc.basis, applied_at: clock.now() }).execute();
       await trx.updateTable("assessment_line_item").set((eb) => ({ allocated_minor: eb("allocated_minor", "+", alloc.amountMinor) })).where("id", "=", alloc.lineItemId).execute();
     }
     await trx.updateTable("assessment").set((eb) => ({ allocated_amount_minor: eb("allocated_amount_minor", "+", allocatedTotal), balance_minor: eb("balance_minor", "-", allocatedTotal) })).where("id", "=", assessmentId).execute();
@@ -428,6 +429,7 @@ export async function capturePayment(db: Kysely<Database>, input: CapturePayment
           ...(input.payerBankBic ? { payer_bank_bic: input.payerBankBic } : {}), ...(input.remittanceRaw ? { remittance_raw: input.remittanceRaw } : {}),
           ...(input.thirdPartyPayer ? { metadata: JSON.stringify({ thirdPartyPayer: input.thirdPartyPayer }) as never } : {}),
           application_trace: JSON.stringify(trace) as never,
+          received_at: clock.now(), created_at: clock.now(),
         })
         .execute();
       return { paymentId, status: captureOutcome, applicationTrace: trace, settledAssessmentIds: [], unappliedAmountMinor: 0n };
@@ -448,6 +450,7 @@ export async function capturePayment(db: Kysely<Database>, input: CapturePayment
         ...(input.instrumentId ? { instrument_id: input.instrumentId } : {}), ...(input.payerAccountMasked ? { payer_account_masked: input.payerAccountMasked } : {}),
         ...(input.payerBankBic ? { payer_bank_bic: input.payerBankBic } : {}), ...(input.remittanceRaw ? { remittance_raw: input.remittanceRaw } : {}),
         ...(input.thirdPartyPayer ? { metadata: JSON.stringify({ thirdPartyPayer: input.thirdPartyPayer }) as never } : {}),
+        received_at: clock.now(), created_at: clock.now(),
       })
       .execute();
 

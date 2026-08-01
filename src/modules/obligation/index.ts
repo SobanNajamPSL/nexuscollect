@@ -237,6 +237,8 @@ export async function createAssessment(
         source: input.source,
         version: 1,
         metadata: JSON.stringify(input.metadata ?? {}) as never,
+        created_at: clock.now(),
+        updated_at: clock.now(),
       })
       .execute();
 
@@ -471,6 +473,8 @@ export async function amendAssessment(
         version: old.version + 1,
         supersedes_id: old.id,
         metadata: JSON.stringify(changes.metadata ?? old.metadata) as never,
+        created_at: clock.now(),
+        updated_at: clock.now(),
       })
       .execute();
 

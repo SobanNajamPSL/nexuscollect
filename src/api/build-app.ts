@@ -227,7 +227,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       }
 
       await handleIdempotently(request, reply, db, clock, "POST /v1/agency/assessments", async () => {
-        const payerId = await resolvePayer(db, body.payer_id, body.payer);
+        const payerId = await resolvePayer(db, body.payer_id, body.payer, clock);
         const { id } = await createAssessment(
           db,
           {
@@ -1141,7 +1141,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.post("/internal/webhooks/subscriptions", async (request, reply) => {
     const { url, secret, agency_code } = request.body as { url: string; secret: string; agency_code?: string };
     const agencyId = agency_code ? (await db.selectFrom("agency").select("id").where("code", "=", agency_code).executeTakeFirstOrThrow()).id : undefined;
-    const id = await createWebhookSubscription(db, url, secret, agencyId);
+    const id = await createWebhookSubscription(db, url, secret, clock, agencyId);
     return reply.code(201).send({ subscription_id: id });
   });
 

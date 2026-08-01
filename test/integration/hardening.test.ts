@@ -74,7 +74,7 @@ describe("Phase 6: receipt signing, webhooks, notifications (§16, §18)", () =>
     const port = (server.address() as { port: number }).port;
 
     const secret = "test-webhook-secret";
-    const subId = await createWebhookSubscription(testDb.db, `http://127.0.0.1:${port}/hook`, secret);
+    const subId = await createWebhookSubscription(testDb.db, `http://127.0.0.1:${port}/hook`, secret, clock);
     await testDb.db.transaction().execute((trx) => appendOutboxEvent(trx, { aggregateType: "payment", aggregateId: randomUUID(), sequence: 1, eventType: "payment.confirmed", payload: { hello: "world" } }, clock));
 
     const result = await deliverPendingWebhooks(testDb.db, clock);
@@ -90,7 +90,7 @@ describe("Phase 6: receipt signing, webhooks, notifications (§16, §18)", () =>
   });
 
   it("§18.2: a failing endpoint schedules a retry per the exponential backoff schedule, never delivering immediately twice", async () => {
-    const subId = await createWebhookSubscription(testDb.db, "http://127.0.0.1:1/definitely-not-listening", "secret");
+    const subId = await createWebhookSubscription(testDb.db, "http://127.0.0.1:1/definitely-not-listening", "secret", clock);
     await testDb.db.transaction().execute((trx) => appendOutboxEvent(trx, { aggregateType: "payment", aggregateId: randomUUID(), sequence: 1, eventType: "payment.confirmed", payload: {} }, clock));
 
     await deliverPendingWebhooks(testDb.db, clock);
@@ -101,7 +101,7 @@ describe("Phase 6: receipt signing, webhooks, notifications (§16, §18)", () =>
   });
 
   it("§18.2: POST /admin/v1/webhooks/{id}/replay re-queues a delivery for consumer recovery", async () => {
-    const subId = await createWebhookSubscription(testDb.db, "http://127.0.0.1:1/still-not-listening", "secret");
+    const subId = await createWebhookSubscription(testDb.db, "http://127.0.0.1:1/still-not-listening", "secret", clock);
     const posted = await testDb.db.transaction().execute((trx) => appendOutboxEvent(trx, { aggregateType: "payment", aggregateId: randomUUID(), sequence: 1, eventType: "payment.confirmed", payload: {} }, clock));
     await deliverPendingWebhooks(testDb.db, clock);
 

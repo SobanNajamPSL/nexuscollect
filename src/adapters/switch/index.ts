@@ -282,6 +282,7 @@ export async function billPaymentReversal(db: Kysely<Database>, req: SwitchRever
       .values({
         acquirer_id: req.acquirer_id, original_stan: req.original_stan, original_rrn: req.original_rrn, txn_date: req.txn_date,
         transaction_amount_minor: req.transaction_amount_minor ?? null, reversal_reason: req.reversal_reason,
+        created_at: clock.now(),
       })
       .onConflict((oc) => oc.columns(["acquirer_id", "original_stan", "original_rrn", "txn_date"]).where("status", "=", "PENDING_ORIGINAL").doNothing())
       .execute();

@@ -110,7 +110,7 @@ export async function approveRefund(db: Kysely<Database>, refundId: string, chec
 
     const approval = await trx
       .insertInto("approval")
-      .values({ subject_type: "refund", subject_id: refundId, action: "APPROVE_REFUND", amount_minor: refund.amount_minor, payload: JSON.stringify({ refundReference: refund.refund_reference }) as never, maker_user_id: makerUserId, checker_user_id: checkerUserId, checker_at: clock.now(), state: "APPROVED" })
+      .values({ subject_type: "refund", subject_id: refundId, action: "APPROVE_REFUND", amount_minor: refund.amount_minor, payload: JSON.stringify({ refundReference: refund.refund_reference }) as never, maker_user_id: makerUserId, maker_at: clock.now(), checker_user_id: checkerUserId, checker_at: clock.now(), state: "APPROVED" })
       .returning("id")
       .executeTakeFirstOrThrow();
 

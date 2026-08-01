@@ -92,6 +92,7 @@ export async function validateBulkFile(
       bulk_reference: bulkReference, file_hash: fileHash, submitted_by_institution_id: input.submittedByInstitutionId ?? null,
       declared_row_count: input.declaredRowCount, declared_total_minor: input.declaredTotalMinor, status,
       rejection_reason: rejectionReason,
+      created_at: clock.now(),
     })
     .returning("id")
     .executeTakeFirstOrThrow();

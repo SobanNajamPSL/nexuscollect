@@ -324,6 +324,7 @@ export async function recordScrollAck(db: Kysely<Database>, scrollId: string, ac
           .values({
             run_id: run.id, break_code: "B09", severity: "MEDIUM", amount_minor: scroll.control_total_minor,
             business_date: scroll.business_date, agency_id: scroll.agency_id, narrative_raw: `Scroll ${scroll.scroll_reference} rejected by treasury`, status: "OPEN",
+            created_at: clock.now(),
           })
           .execute();
       }
@@ -381,6 +382,7 @@ export async function runSweep(db: Kysely<Database>, agencyCode: string, busines
               payment_reference: sweepReference, channel: "TREASURY", rail: "PRISM_RTGS", direction: "OUTBOUND",
               agency_id: agency.id, gross_amount_minor: sweptAmountMinor, net_to_agency_minor: sweptAmountMinor, status: "CONFIRMED", finality: "FINAL",
               value_date: businessDate, obligation_discharge_date: businessDate, confirmed_at: clock.now(),
+              received_at: clock.now(), created_at: clock.now(),
             })
             .returning("id")
             .executeTakeFirstOrThrow()

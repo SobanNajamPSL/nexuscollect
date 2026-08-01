@@ -208,6 +208,7 @@ export async function runReconciliation(db: Kysely<Database>, businessDate: stri
         .values({
           run_id: runId, break_code: b.breakCode, severity: b.severity, amount_minor: b.amountMinor, business_date: businessDate,
           narrative_raw: b.narrative, status: b.autoResolvable ? "RESOLVED" : "OPEN",
+          created_at: clock.now(),
           ...(b.paymentId ? { payment_id: b.paymentId } : {}),
           ...(b.autoResolvable ? { resolved_at: clock.now(), resolution_note: "Auto-resolved" } : {}),
         })
