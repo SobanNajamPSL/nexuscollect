@@ -31,6 +31,8 @@ const OPS_NAV = [
   { to: "/ops/disputes", label: "Disputes" },
   { to: "/ops/agent-float", label: "Agent Float" },
   { to: "/ops/roles", label: "Roles & Permissions" },
+  { to: "/ops/ops-dashboard", label: "Ops Dashboard" },
+  { to: "/ops/executive-dashboard", label: "Executive Dashboard" },
 ];
 
 export default function App() {

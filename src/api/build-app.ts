@@ -1214,6 +1214,76 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return reply.code(200).send(await reports.r18FiscalYearCertificate(db, q.agency_code, q.fiscal_year_start, q.fiscal_year_end, clock));
   });
 
+  // Ops dashboard (Phase 12): a composed view over data sources that already
+  // exist — no new capability, just a new aggregation of the UNCERTAIN queue,
+  // break ageing (R04), the demo-date settlement/scroll picture (R05), and
+  // the five §10.8 control assertions as five ticks.
+  app.get("/internal/ops/overview", async (request, reply) => {
+    const { business_date } = request.query as { business_date: string };
+    const uncertain = await db.selectFrom("payment").select(["payment_reference", "received_at"]).where("status", "=", "UNCERTAIN").execute();
+    const oldestUncertainAgeMs = uncertain.length > 0 ? Math.max(0, ...uncertain.map((u) => clock.now().getTime() - u.received_at.getTime())) : 0;
+    const breakAgeing = await reports.r04BreakRegisterAgeing(db, business_date);
+    const settlement = await reports.r05SettlementSweepReport(db, business_date);
+    const [trialBalance, allocationIntegrity, balanceRebuild, ledgerVsSubledger, chainBreak] = await Promise.all([
+      checkTrialBalance(db, business_date),
+      checkAllocationIntegrity(db),
+      checkBalanceRebuild(db),
+      checkLedgerVsSubledger(db),
+      verifyLedgerChain(db),
+    ]);
+    return reply.code(200).send(serializeReport({
+      businessDate: business_date,
+      uncertainQueue: { count: uncertain.length, oldestAgeMs: oldestUncertainAgeMs },
+      breakAgeing,
+      settlement,
+      controls: {
+        trialBalance: trialBalance.balanced,
+        allocationIntegrity: allocationIntegrity.passed,
+        balanceRebuild: balanceRebuild.passed,
+        ledgerVsSubledger: ledgerVsSubledger.passed,
+        hashChainIntact: chainBreak === null,
+      },
+    }));
+  });
+
+  // Executive dashboard (Phase 12): collections trend across every real
+  // business date in the dataset, channel mix (R09), and an auto-resolution
+  // rate computed from real recon_break outcomes. Per this build's own
+  // never-fabricate discipline (already applied to R09/R15/R16/R17),
+  // per-agency "time to onboard" is disclosed as not tracked rather than
+  // approximated — `agency` has no onboarding-timestamp column at all.
+  app.get("/internal/executive/overview", async (_request, reply) => {
+    const trendRows = await db
+      .selectFrom("payment")
+      .select("value_date")
+      .select(({ fn }) => [fn.countAll().as("count"), fn.sum<bigint>("gross_amount_minor").as("gross_minor")])
+      .where("status", "=", "CONFIRMED")
+      .where("direction", "=", "INBOUND")
+      .groupBy("value_date")
+      .orderBy("value_date")
+      .execute();
+    const channelMix = await reports.r09ChannelPerformance(db);
+    const breakOutcomes = await db.selectFrom("recon_break").select("status").select(({ fn }) => fn.countAll().as("count")).groupBy("status").execute();
+    const totalBreaks = breakOutcomes.reduce((s, r) => s + Number(r.count), 0);
+    const resolvedBreaks = breakOutcomes.find((r) => r.status === "RESOLVED")?.count ?? 0;
+    const agencyCount = await db.selectFrom("agency").select(({ fn }) => fn.countAll().as("count")).executeTakeFirstOrThrow();
+    return reply.code(200).send(serializeReport({
+      collectionsTrend: trendRows.map((r) => ({ valueDate: r.value_date, count: Number(r.count), grossMinor: r.gross_minor ?? 0n })),
+      channelMix,
+      autoResolution: {
+        totalBreaks,
+        autoResolvedBreaks: Number(resolvedBreaks),
+        rate: totalBreaks > 0 ? Number(resolvedBreaks) / totalBreaks : null,
+        disclosedGap: "This is the auto-resolved share of reconciliation breaks, not a channel-level auto-match rate — this build doesn't track total-transactions-matched-without-a-break as a distinct count.",
+      },
+      agencyCount: Number(agencyCount.count),
+      disclosedGaps: [
+        "Per-agency time-to-onboard is not tracked — `agency` has no onboarding-timestamp column.",
+        "Digital-vs-cash mix by payer cohort is not tracked — no cohort/segment dimension exists on `payer`.",
+      ],
+    }));
+  });
+
   app.get("/internal/reports", async (_request, reply) => {
     return reply.code(200).send([
       { id: "r01", name: "Daily Collection Summary" }, { id: "r02", name: "Head-wise Collection Statement" },

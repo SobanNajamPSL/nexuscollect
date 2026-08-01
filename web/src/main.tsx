@@ -28,6 +28,8 @@ import BulkPayments from "./pages/BulkPayments.js";
 import DisputeConsole from "./pages/DisputeConsole.js";
 import AgentFloat from "./pages/AgentFloat.js";
 import RolesAndPermissions from "./pages/RolesAndPermissions.js";
+import OpsDashboard from "./pages/OpsDashboard.js";
+import ExecutiveDashboard from "./pages/ExecutiveDashboard.js";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -59,6 +61,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="ops/disputes" element={<DisputeConsole />} />
           <Route path="ops/agent-float" element={<AgentFloat />} />
           <Route path="ops/roles" element={<RolesAndPermissions />} />
+          <Route path="ops/ops-dashboard" element={<OpsDashboard />} />
+          <Route path="ops/executive-dashboard" element={<ExecutiveDashboard />} />
         </Route>
       </Routes>
     </BrowserRouter>
