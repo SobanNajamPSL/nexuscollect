@@ -7,6 +7,9 @@ Every domain term used in this manual and on the platform's own screens, defined
 **Agency**
 A government body that issues bills and receives collections through the platform (e.g. the Federal Board of Revenue, the Punjab Safe Cities Authority). See the [Agency Dashboard](05-agency-dashboard.md).
 
+**Agent float**
+The running balance an *agent* (branchless-banking channel) owes the operator — collected cash minus remittances, always derived rather than cached. See [Agent / Branchless Banking](10-payment-channels-and-flows.md#agent--branchless-banking).
+
 **Allocation**
 The record linking a specific *payment* (or part of one) to a specific *assessment* (or one of its line items). One payment can produce several allocations, spread across several assessments and even several agencies. See [Assessment, Payment, and Allocation](00-introduction-and-concepts.md#2-assessment-payment-and-allocation-are-three-separate-things).
 
@@ -15,6 +18,9 @@ The platform's term for a bill — what an agency says a payer owes. Exists inde
 
 **Break**
 A mismatch found during *reconciliation* between the platform's own ledger and an external source (bank statement, switch settlement file, rail settlement file). See [Screen 3 — Break Register](03-break-register.md).
+
+**Chargeback / dispute**
+A card scheme forcing the reversal of a *payment* weeks after it was completed, at the citizen's request through the card network rather than through the platform directly. Handled as its own lifecycle (RECEIVED → EVIDENCE_SUBMITTED → WON/LOST), distinct from an ordinary *refund*. See [Disputes & Chargebacks](11-exceptions-configuration-and-governance.md#disputes--chargebacks).
 
 **Confirmed**
 One of the three headline agency figures: money that has been definitively applied to an agency's bills. See [Confirmed, settled, and swept](00-introduction-and-concepts.md#3-confirmed-settled-and-swept-are-three-different-honestly-reported-numbers).
@@ -37,20 +43,38 @@ A specific component of an assessment's total amount — for example, a single b
 **Maker-checker**
 A control requiring two different people: one to propose or perform an action (the "maker"), and a different one to review and approve it (the "checker"). Enforced by the system itself for actions like break resolution and refund approval — the same user account cannot do both. See [the introduction](00-introduction-and-concepts.md#6-maker-checker-separation-of-duties).
 
+**Mandate**
+A payer's standing, pre-granted authorisation for the platform to collect recurring bills against a specific product, up to a maximum amount per collection, without asking each time. Implemented as an automated *Request to Pay* whose acceptance was already granted when the mandate was created. See [Mandates](10-payment-channels-and-flows.md#mandates-standing-authorisation).
+
 **PSID (Payment Slip ID)**
 The canonical, unique identifier for a bill (*assessment*) in the platform — a long numeric reference with a built-in check digit that catches typos and transposition errors before any lookup is even attempted.
 
 **Rail**
 The underlying payment network or mechanism that actually moves money (e.g. RAAST, 1LINK, a card network). Distinct from *channel* (the citizen-facing way they interact — a bank's mobile app, a wallet, a physical counter) — several channels can route through the same rail.
 
+**Recall**
+A request to return a payment made very soon after it happened, resolved differently depending on whether the money has been allocated to a bill, swept to the agency, or neither. Distinct from a *refund*, which can be raised at any time, for any reason. See [Recall a Payment](10-payment-channels-and-flows.md#recall-a-payment).
+
 **Reconciliation**
 The process of comparing the platform's own ledger against independent external sources (the bank's statement, the switch's settlement file, the rail's settlement file) to confirm they agree, and surfacing any mismatch as a *break*. Run daily. See [Screen 3](03-break-register.md).
+
+**Refund**
+Money returned to a payer, under full maker-checker approval, always defaulting to the account the original payment came from unless an approved override changes it. See [Refunds](10-payment-channels-and-flows.md#refunds).
+
+**Refundable deposit**
+A payment (e.g. a tender security or litigation deposit) that is not agency revenue at all — credited to a dedicated liability account rather than the ordinary revenue account, and ultimately refunded, forfeited, or converted to revenue as a distinct decision. See [Refundable Deposits](11-exceptions-configuration-and-governance.md#refundable-deposits).
 
 **Reference type**
 The kind of identifier used to look up a bill on [Screen 1](01-citizen-payment.md) — PSID, vehicle registration, CNIC, case number, QR payload, and several others. All reference types for the same payer or property resolve to the same underlying *assessment(s)*.
 
+**Request to Pay (RtP)**
+A message sent to a specific payer asking them to settle a specific bill by a given expiry date — the platform proactively asking to be paid, rather than only waiting for the payer to look up a bill on their own. See [Request to Pay](10-payment-channels-and-flows.md#request-to-pay).
+
 **Revenue head**
 The specific budget/legal category a portion of collected money belongs to (e.g. "B01101 — Income Tax on Companies," "B02391 — Penalty - Income Tax"). Government financial reporting is organized around revenue heads, which is why the [Agency Dashboard](05-agency-dashboard.md) breaks every figure down this way rather than reporting one lump sum.
+
+**Role**
+One of twelve named internal permissions a platform user holds (e.g. `AGENCY_ADMIN`, `OPS_RECON_ANALYST`), enforced server-side against specific actions. See [Roles & Permissions](11-exceptions-configuration-and-governance.md#roles--permissions).
 
 **Scroll**
 A formal, itemised hand-off document — one line per allocation — generated when money is *swept* to treasury, used by treasury to acknowledge receipt of exactly what the platform says it sent. Never emitted unless its total ties exactly to the ledger. See [Settlement & Sweep](07-back-office-screens.md#settlement--sweep).

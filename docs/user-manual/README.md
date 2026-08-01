@@ -20,14 +20,16 @@ This manual documents every screen, workflow, and concept in the platform as it 
 | 7 | [Back-Office Screens](07-back-office-screens.md) | The 12 operational screens used by internal staff day to day (search, queues, till, settlement, approvals, config, reports, audit) |
 | 8 | [Flows & Diagrams](08-flows-and-diagrams.md) | Visual, end-to-end diagrams of the major processes — the payment lifecycle, the cheque dishonour cascade, the settlement/sweep cycle, and more |
 | 9 | [Glossary](09-glossary.md) | Every domain term used in this manual and in the platform's own screens, defined in one place |
+| 10 | [Payment Channels & Money-Movement Flows](10-payment-channels-and-flows.md) | Request to Pay, refunds, recalling a payment, bulk corporate files, standing mandates, card & wallet payments, offline-verifiable signed receipts, and the agent/branchless-banking channel |
+| 11 | [Exceptions, Configuration & Governance](11-exceptions-configuration-and-governance.md) | Disputes & chargebacks, refundable deposits and third-party payer, the agency/product configuration wizard, roles & permissions, and the Ops/Executive dashboards |
 
 ## Who should read what
 
 - **A citizen or front-line support agent** paying a bill: read documents 1 and 2 only.
 - **A reconciliation analyst or approver**: read documents 0, 3, and 7 (Recon Console, Approvals Inbox sections).
-- **An agency finance officer**: read documents 0, 5, and 7 (Report Centre, Settlement & Sweep sections).
-- **An operations / teller user**: read documents 0, 4, and 7 (Teller/Till, Instrument Register, UNCERTAIN Queue sections).
-- **Anyone verifying the platform's integrity** (an auditor, or a government reviewer): read document 6 and the Audit Explorer section of document 7.
+- **An agency finance officer**: read documents 0, 5, 7 (Report Centre, Settlement & Sweep sections), and 11 (Agency & Product Configuration, Executive Dashboard).
+- **An operations / teller user**: read documents 0, 4, 7 (Teller/Till, Instrument Register, UNCERTAIN Queue sections), and 10 (Refunds, Recalls, Bulk Payments, Agent/Branchless Banking).
+- **Anyone verifying the platform's integrity** (an auditor, or a government reviewer): read document 6, the Audit Explorer section of document 7, and Roles & Permissions in document 11.
 - **Anyone who wants the full picture**: read this manual start to finish, in order — each document builds on the concepts introduced before it.
 
 ## A note on the demonstration environment

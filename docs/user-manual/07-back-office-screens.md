@@ -192,4 +192,6 @@ You can also search by entity type (e.g. "refund", "assessment") and an optional
 
 ## What to do next
 
-If you've now read through every screen in this manual, continue to [Flows & Diagrams](08-flows-and-diagrams.md) for an end-to-end visual summary of how these screens connect during real processes, or the [Glossary](09-glossary.md) for quick term lookups.
+These twelve screens cover the original day-to-day back office. For the payment channels and money-movement tools added afterward — Request to Pay, refunds, recalls, bulk payments, mandates, card/wallet payments, signed receipts, and the agent/branchless-banking channel — continue to [Payment Channels & Money-Movement Flows](10-payment-channels-and-flows.md). For disputes, refundable deposits, agency/product configuration, roles, and the two composed dashboards, see [Exceptions, Configuration & Governance](11-exceptions-configuration-and-governance.md).
+
+Otherwise, continue to [Flows & Diagrams](08-flows-and-diagrams.md) for an end-to-end visual summary of how these screens connect during real processes, or the [Glossary](09-glossary.md) for quick term lookups.
