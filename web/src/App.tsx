@@ -9,6 +9,24 @@ const NAV = [
   { to: "/controls", label: "6. Control Assertions" },
 ];
 
+// §22.1's back-office screens beyond the 6 demo-critical ones above — a
+// second, less prominent row, since the demo's own priority order (CLAUDE.md)
+// puts citizen journey clarity and head-wise reporting first.
+const OPS_NAV = [
+  { to: "/ops/payments", label: "Payment 360°" },
+  { to: "/ops/assessments", label: "Assessment 360°" },
+  { to: "/ops/payers", label: "Payer 360°" },
+  { to: "/ops/unapplied", label: "Unapplied Queue" },
+  { to: "/ops/uncertain", label: "UNCERTAIN Queue" },
+  { to: "/ops/teller", label: "Teller / Till" },
+  { to: "/ops/settlement", label: "Settlement & Sweep" },
+  { to: "/ops/approvals", label: "Approvals Inbox" },
+  { to: "/ops/agencies", label: "Agency Config" },
+  { to: "/ops/recon-console", label: "Recon Console" },
+  { to: "/ops/reports", label: "Report Centre" },
+  { to: "/ops/audit", label: "Audit Explorer" },
+];
+
 export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
@@ -35,6 +53,21 @@ export default function App() {
           ))}
         </nav>
       </header>
+      <div className="bg-gov-primaryDark/90 text-white/90">
+        <nav className="max-w-6xl mx-auto px-4 flex gap-1 overflow-x-auto">
+          {OPS_NAV.map((n) => (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              className={({ isActive }) =>
+                `px-2.5 py-1.5 text-xs whitespace-nowrap border-b-2 ${isActive ? "border-white font-semibold text-white" : "border-transparent text-white/60 hover:text-white"}`
+              }
+            >
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         <Outlet />
       </main>
