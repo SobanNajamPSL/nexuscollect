@@ -535,6 +535,24 @@ export interface BulkBatchRowTable {
   error_code: string | null;
 }
 
+export interface AgentFloatAccountTable {
+  id: Generated<string>;
+  agent_code: string;
+  agent_name: string;
+  institution_bic: string | null;
+  created_at: GeneratedTimestamp;
+}
+
+export interface AgentFloatMovementTable {
+  id: Generated<string>;
+  agent_float_account_id: string;
+  payment_id: string | null;
+  movement_type: "COLLECTION" | "REMITTANCE";
+  amount_minor: bigint;
+  business_date: Dated;
+  created_at: GeneratedTimestamp;
+}
+
 export interface WebhookSubscriptionTable {
   id: Generated<string>;
   agency_id: string | null;
@@ -812,5 +830,7 @@ export interface Database {
   webhook_subscription: WebhookSubscriptionTable;
   webhook_delivery: WebhookDeliveryTable;
   notification_log: NotificationLogTable;
+  agent_float_account: AgentFloatAccountTable;
+  agent_float_movement: AgentFloatMovementTable;
   schema_migrations: SchemaMigrationsTable;
 }

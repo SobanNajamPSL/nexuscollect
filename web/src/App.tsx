@@ -29,6 +29,7 @@ const OPS_NAV = [
   { to: "/ops/refunds", label: "Refunds" },
   { to: "/ops/bulk-payments", label: "Bulk Payments" },
   { to: "/ops/disputes", label: "Disputes" },
+  { to: "/ops/agent-float", label: "Agent Float" },
 ];
 
 export default function App() {

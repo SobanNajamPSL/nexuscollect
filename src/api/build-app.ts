@@ -37,6 +37,7 @@ import { receiveRecall } from "../modules/recall/index.js";
 import { receiveDispute, assembleEvidenceBundle, resolveDispute } from "../modules/dispute/index.js";
 import { refundDeposit, exitDepositToRevenue } from "../modules/deposit/index.js";
 import { createProduct, approveProduct, amendProduct, SelfApprovalNotAllowedError } from "../modules/product-config/index.js";
+import { captureAgentPayment, remitAgentFloat, getAgentFloatPosition } from "../adapters/rails/agent/index.js";
 import { createMandate, collectUnderMandate } from "../modules/mandate/index.js";
 import { captureCardPayment } from "../adapters/rails/card/index.js";
 import { captureWalletPayment } from "../adapters/rails/wallet/index.js";
@@ -1077,6 +1078,27 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const body = request.body as { psid: string; amount_minor: number; value_date: string; wallet_provider: string; wallet_msisdn_masked: string };
     const result = await captureWalletPayment(db, { psid: body.psid, amountMinor: BigInt(body.amount_minor), valueDate: body.value_date, obligationDischargeDate: body.value_date, walletProvider: body.wallet_provider, walletMsisdnMasked: body.wallet_msisdn_masked }, clock);
     return reply.code(200).send({ payment_id: result.paymentId, status: result.status, settled_assessment_ids: result.settledAssessmentIds });
+  });
+
+  // --- Phase 10: agent / branchless banking channel (§8.7) ---
+
+  app.post("/internal/payments/agent", async (request, reply) => {
+    const body = request.body as { agent_code: string; agent_name?: string; psid: string; amount_minor: number; value_date: string };
+    const result = await captureAgentPayment(db, { agentCode: body.agent_code, ...(body.agent_name ? { agentName: body.agent_name } : {}), psid: body.psid, amountMinor: BigInt(body.amount_minor), valueDate: body.value_date, obligationDischargeDate: body.value_date }, clock);
+    return reply.code(200).send({ payment_id: result.paymentId, status: result.status, settled_assessment_ids: result.settledAssessmentIds });
+  });
+
+  app.post("/internal/agents/:agentCode/remit", async (request, reply) => {
+    const { agentCode } = request.params as { agentCode: string };
+    const { amount_minor, business_date } = request.body as { amount_minor: number; business_date: string };
+    await remitAgentFloat(db, agentCode, BigInt(amount_minor), business_date);
+    return reply.code(200).send({ remitted: true });
+  });
+
+  app.get("/internal/agents/:agentCode/float", async (request, reply) => {
+    const { agentCode } = request.params as { agentCode: string };
+    const position = await getAgentFloatPosition(db, agentCode);
+    return reply.code(200).send({ agent_code: position.agentCode, collected_minor: toWireMinor(position.collectedMinor), remitted_minor: toWireMinor(position.remittedMinor), outstanding_minor: toWireMinor(position.outstandingMinor) });
   });
 
   // §8.13: print-and-pay challan (real computed content; no PDF-rendering
