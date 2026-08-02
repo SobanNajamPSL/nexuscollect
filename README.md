@@ -10,20 +10,60 @@ abstraction layer.
 |---|---|
 | `P2G-Collection-Platform-Design.md` | **The specification.** 28 sections, normative. The only document you need to read. |
 | `CLAUDE.md` | Standing instructions for the coding agent. Stack, hard rules, demo-mode requirements. |
-| `PROMPTS.md` | Eight phase prompts to paste into Claude Code, one at a time. |
+| `PROMPTS.md` | The eight phase prompts the build was worked through, in order. |
 | `api/openapi.yaml` | OpenAPI 3.1 contract. 48 paths across six API surfaces, 5 webhooks. Validated. |
-| `demo-data/` | 22-file seed dataset **and** the test fixture. See its own README. |
-| `scripts/generate_demo_data.py` | Regenerates `demo-data/`. Deterministic, 17 self-checks. |
+| `demo-data/` | Seed dataset **and** the test fixture. Read-only — never regenerated to make a test pass. See its own README. |
+| `src/` | The platform: twelve capability modules, rail adapters, five API surfaces, platform primitives. |
+| `web/` | Four portals — `citizen/`, `agency/`, `ops/`, `field/` — plus `shared/`, which holds the demonstration harness. |
+| `db/migrations/` | Plain `.sql`, applied in order. |
+| `test/` | Vitest, against a real Postgres via Testcontainers. |
+| `docs/user-manual/` | **Start here to understand the product.** One chapter per portal, with captured screenshots. |
+| `docs/demo/` | The recording script, shot list, and the recordings. |
+| `docs/runbooks/` | Twelve operational runbooks. |
+| `scripts/generate_demo_data.py` | Regenerates `demo-data/`. Deterministic, 17 self-checks. Do not run it to fix a failing assertion. |
 
-## Getting started
+## Running it
 
 ```bash
-git init && git add . && git commit -m "Spec, contract and demo data"
-claude          # then paste Prompt 0 from PROMPTS.md
+docker compose up -d db
+npm install
+npm run migrate && npm run seed
+npm run dev                    # the API, on :3000
 ```
 
-Work `PROMPTS.md` in order. Each prompt ends at a gate; do not advance until it
-passes. A **recordable demo exists after Prompt 4** — film then, and keep building.
+Then start whichever portals you need. Each is a separate Vite app on its own
+`*.localhost` hostname — Chrome resolves those to loopback on its own, so there is
+nothing to add to `/etc/hosts`:
+
+```bash
+npm --prefix web run dev:citizen   # pay.localhost:5174
+npm --prefix web run dev:agency    # agency.localhost:5175
+npm --prefix web run dev:ops       # ops.localhost:5176
+npm --prefix web run dev:field     # field.localhost:5177
+```
+
+| Portal | Who it is for |
+|---|---|
+| **Citizen** `pay.localhost:5174` | The public. No sign-in, phone-first. Find a bill by any reference, pay it, get a receipt in English or Urdu. |
+| **Agency** `agency.localhost:5175` | One agency's finance staff. Head-wise position with confirmed, settled and swept as three separate numbers. |
+| **Operator** `ops.localhost:5176` | The cross-agency back office. Nineteen screens: queues, reconciliation, exceptions, sweep, assurance. |
+| **Field** `field.localhost:5177` | A counter or a shop. Cash, cheque lodgement, till close, agent float. |
+
+A visibly-labelled **demonstration harness** bar above every portal carries the
+persona switcher, the portal switcher, the demo clock, reset, and a button that
+deliberately corrupts the ledger. None of it is part of the product;
+[`docs/user-manual/01-demonstration-harness.md`](docs/user-manual/01-demonstration-harness.md)
+explains why it sits outside rather than inside.
+
+To check the whole thing still works, including every screen:
+
+```bash
+npm test && npx tsx scripts/capture-screens.ts
+```
+
+The capture script walks all 35 screens across the four portals and fails on any
+console error, failed request or missing data — so it is the route sweep as well as
+the source of the manual's screenshots.
 
 ## The three ideas that matter
 

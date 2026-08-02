@@ -67,8 +67,8 @@ Chosen for speed to a working, recordable demo. Do not substitute.
 | Query layer | **Kysely** — raw-SQL control. **No ORM for the ledger or allocation engine.** |
 | Migrations | Plain `.sql` files in `db/migrations/`, applied in order |
 | Tests | Vitest (unit + integration), Testcontainers for a real Postgres |
-| UI | React + Vite + Tailwind, 6 screens only (see §"UI scope") |
-| Local run | Docker Compose: `db`, `api`, `worker`, `web` |
+| UI | React + Vite + Tailwind. **Four separate portals** — see §"UI scope" |
+| Local run | Docker Compose `db` + `api`; the four portals via `.claude/launch.json` on `*.localhost` |
 | Money | `bigint` in Postgres, `bigint` in TypeScript. Never `number`. |
 
 ## Module layout
@@ -109,17 +109,32 @@ Therefore:
 - The demo must be **deterministic**: same actions, same numbers, same screens,
   every time. No randomness in anything the camera sees.
 
-## UI scope — 6 screens, no more
+## UI scope — four portals
 
-Built to drive §24.4 end to end. Do not build the other nine screens from §22.1
-until every phase gate has passed.
+The build is **four separate Vite applications**, each on its own hostname, because
+back-office functions and a citizen payment screen do not belong in one window. The
+split follows a boundary the API already had (`v1/`, `switch/`, `admin/`, `public/`,
+`internal/`) — the front end was the only layer ignoring it. It is also a real
+boundary rather than a cosmetic one: the citizen bundle cannot contain operator code.
 
-1. **Citizen payment** — resolve by any reference, see payables, pay, get receipt
-2. **Receipt + public verification** — including offline QR verification
-3. **Break register** — list, investigate, propose, approve (maker-checker, two users)
-4. **Instrument register** — lodge, link, clear, return; the dishonour cascade
-5. **Agency dashboard** — head-wise position, confirmed vs settled vs swept
-6. **Control assertions** — the five §10.8 checks, live, with a "break the chain" button
+| Portal | Host | For | Screens |
+|---|---|---|---|
+| Citizen | `pay.localhost:5174` | The public. No sign-in, phone-first. | 3 (+ a receipts list) |
+| Agency | `agency.localhost:5175` | One agency's finance staff, tenant-scoped. | 7 |
+| Operator | `ops.localhost:5176` | Cross-agency back office, dense, grouped rail. | 19 |
+| Field | `field.localhost:5177` | Counter and shop. Oversized, high contrast. | 4 |
+
+Above all four sits a visibly-labelled **demonstration harness** bar carrying the
+persona switcher, the portal switcher, the demo clock, reset, and "break the chain".
+None of that belongs to a real user — least of all a button that corrupts the ledger —
+so it lives outside the product, and on camera that strengthens the tamper
+demonstration rather than weakening it.
+
+**Citizen portal scope is deliberately narrow**: enough to genuinely initiate and
+complete a payment, so that every figure in the other three portals is real rather
+than narrated. Narrow is not unfinished — the receipt is held to full quality,
+including Urdu and offline signature verification, because it is the artefact that
+outlives the transaction.
 
 Audience is a **government agency**, so polish in this order: correctness of
 head-wise reporting → receipt quality (including Urdu) → the scroll → citizen
@@ -144,6 +159,6 @@ Work the phases in `PROMPTS.md`, in order. For each phase:
 | Skip the `UNCERTAIN` payment state | No. §9.4. It is the most important state in the platform. |
 | Reject a late or mismatched credit | No. Always accept money that has left the payer's account (§8.4). |
 | Regenerate the fixture to fix a test | No. See §"Fixtures are assertions". |
-| Build all 15 back-office screens | No. Six, listed above. |
+| Put a back-office screen in the citizen portal | No. Four portals, four audiences — see §"UI scope". |
 | Start on HSM key rotation, DR rehearsals or 3,000 TPS load tests | No. §19 and §20 are design commentary for this build, not backlog. Implement idempotency, audit and RBAC; stub the rest. |
 | Add a regulatory citation to look thorough | Never. |

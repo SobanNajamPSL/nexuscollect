@@ -22,5 +22,5 @@
    turn off a channel than let payers keep landing in `UNCERTAIN`.
 
 **Never** show an `UNCERTAIN` payment to its payer as failed (§9.4 rule 2) —
-this is enforced at the UI layer (Screen 1's "we're confirming your payment"
+this is enforced at the UI layer (the citizen portal's "we're still confirming your payment"
 state), not just documented here.

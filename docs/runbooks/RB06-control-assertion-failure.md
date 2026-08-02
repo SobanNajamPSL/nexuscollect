@@ -1,6 +1,6 @@
 # RB06 — Control assertion failure (§10.8)
 
-**Trigger:** any of the five live checks on the Control Assertions screen
+**Trigger:** any of the five live checks on the operator portal's Control assertions screen
 (`GET /internal/control/trial-balance`, `/allocation-integrity`,
 `/balance-rebuild`, `/ledger-vs-subledger`, `/internal/ledger/verify-chain`)
 goes red.
