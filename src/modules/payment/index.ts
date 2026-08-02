@@ -128,6 +128,19 @@ export interface CapturePaymentInput {
    * defaulting here to `UNCERTAIN` whenever the caller doesn't affirmatively
    * assert `CONFIRMED`. */
   captureOutcome?: "CONFIRMED" | "UNCERTAIN" | "FAILED";
+  /**
+   * §13.4's `PROVISIONAL_FUNDS_NOT_SWEEPABLE`. Money behind an uncleared
+   * instrument is confirmed but *not final* — it can still be taken back by the
+   * bank — so it must never reach treasury.
+   *
+   * This was previously hardcoded to `FINAL` on confirmation, which meant the
+   * guarantee held only for the seeded dataset (whose one provisional cheque
+   * comes straight from `payments.csv`) and not for anything the platform
+   * actually captured. Lodging a cheque through the live pipeline would have
+   * produced final, sweepable money — the exact failure the rule exists to
+   * prevent. Defaults to `FINAL`; instrument lodgement passes `PROVISIONAL`.
+   */
+  finality?: "FINAL" | "PROVISIONAL";
 }
 
 export interface CapturePaymentResult {
@@ -485,7 +498,7 @@ export async function capturePayment(db: Kysely<Database>, input: CapturePayment
 
     await trx
       .updateTable("payment")
-      .set({ agency_id: journalPostings[0]?.agencyId ?? null, unapplied_amount_minor: unappliedAmountMinor, status: "CONFIRMED", finality: "FINAL", confirmed_at: clock.now(), application_trace: JSON.stringify(trace) as never, ...(probableDuplicateOfPaymentId ? { duplicate_of_payment_id: probableDuplicateOfPaymentId } : {}) })
+      .set({ agency_id: journalPostings[0]?.agencyId ?? null, unapplied_amount_minor: unappliedAmountMinor, status: "CONFIRMED", finality: input.finality ?? "FINAL", confirmed_at: clock.now(), application_trace: JSON.stringify(trace) as never, ...(probableDuplicateOfPaymentId ? { duplicate_of_payment_id: probableDuplicateOfPaymentId } : {}) })
       .where("id", "=", paymentId)
       .execute();
 

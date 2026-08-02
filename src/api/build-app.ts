@@ -15,6 +15,13 @@ import {
   type LineItemInput,
 } from "../modules/obligation/index.js";
 import { mintPsid, PsidNotMintableError } from "../modules/obligation/mint-psid.js";
+import { tillCloseSourceId } from "../platform/ids/index.js";
+import {
+  lodgeInstrument,
+  InstrumentAmountMismatchError,
+  InstrumentAlreadyLodgedError,
+  type LodgeInstrumentInput,
+} from "../modules/instrument/lodge.js";
 import {
   listBreaks,
   proposeBreakResolution,
@@ -693,6 +700,57 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       .limit(50)
       .execute();
     return reply.code(200).send(rows.map((r) => ({ id: r.id, instrument_type: r.instrument_type, instrument_number: r.instrument_number, drawee_bank_name: r.drawee_bank_name, drawer_name: r.drawer_name, amount_minor: toWireMinor(r.amount_minor), status: r.status, lodged_on: r.lodged_on, returned_on: r.returned_on, return_reason_code: r.return_reason_code, dishonour_charge_assessment_id: r.dishonour_charge_assessment_id, agency_code: r.agency_code })));
+  });
+
+  /**
+   * Lodge a physical instrument at a counter. Role-gated to TELLER — accepting
+   * money over a counter is a teller's act, and §3.2 explicitly says a branch
+   * supervisor "cannot accept payments".
+   */
+  app.post("/internal/instruments", { preHandler: requireRole(db, ["TELLER"]) }, async (request, reply) => {
+    const body = request.body as {
+      instrument_type: LodgeInstrumentInput["instrumentType"];
+      instrument_number: string;
+      amount_minor: number;
+      drawee_bank_name?: string;
+      drawer_name?: string;
+      drawer_account_masked?: string;
+      instrument_date?: string;
+      allocations: { psid: string; amount_minor: number }[];
+      lodged_at_branch?: string;
+      value_date: string;
+    };
+    try {
+      const result = await lodgeInstrument(
+        db,
+        {
+          instrumentType: body.instrument_type,
+          instrumentNumber: body.instrument_number,
+          amountMinor: BigInt(body.amount_minor),
+          ...(body.drawee_bank_name ? { draweeBankName: body.drawee_bank_name } : {}),
+          ...(body.drawer_name ? { drawerName: body.drawer_name } : {}),
+          ...(body.drawer_account_masked ? { drawerAccountMasked: body.drawer_account_masked } : {}),
+          ...(body.instrument_date ? { instrumentDate: body.instrument_date } : {}),
+          allocations: body.allocations.map((a) => ({ psid: a.psid, amountMinor: BigInt(a.amount_minor) })),
+          ...(body.lodged_at_branch ? { lodgedAtBranch: body.lodged_at_branch } : {}),
+          lodgedByUser: request.headers["x-user-id"] as string,
+          valueDate: body.value_date,
+        },
+        clock,
+      );
+      return reply.code(201).send({
+        instrument_id: result.instrumentId,
+        payment_id: result.paymentId,
+        payment_status: result.paymentStatus,
+        provisional: result.provisional,
+        credit_policy: result.creditPolicy,
+      });
+    } catch (err) {
+      if (err instanceof InstrumentAmountMismatchError || err instanceof InstrumentAlreadyLodgedError) {
+        return reply.code(err.httpStatus).send({ type: `https://errors.nexuscollect.example/${err.code}`, title: "Cannot lodge instrument", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+      }
+      throw err;
+    }
   });
 
   app.post("/internal/instruments/:instrumentId/return", async (request, reply) => {
@@ -1550,13 +1608,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const expectedMinor = BigInt(expected?.total ?? 0n);
     const countedMinor = BigInt(counted_amount_minor);
     const diff = countedMinor - expectedMinor;
+    // One till in this build. `source_id` is a UUID column, so the ledger source
+    // for a close is derived from (date, till) rather than generated — the same
+    // close must always produce the same id, or a retry would post twice.
+    const TILL_CODE = "TELLER-01";
     if (diff !== 0n) {
       await db.transaction().execute(async (trx) => {
         const tillCode = await getOrCreateLedgerAccount(trx, { baseCode: "1010", dimensionKey: "TELLER-01", name: "Cash in Till", accountType: "ASSET", normalBalance: "DR" });
         const overShortCode = await getOrCreateLedgerAccount(trx, { baseCode: "5900", dimensionKey: "PLATFORM", name: "Cash Over/Short", accountType: "EXPENSE", normalBalance: "DR" });
         await postJournalTemplate(trx, diff > 0n
-          ? { eventType: "TILL_OVER", debitAccountCode: tillCode, creditAccountCode: overShortCode, amountMinor: diff, sourceType: "till_close", sourceId: `${business_date}:TELLER-01`, valueDate: business_date }
-          : { eventType: "TILL_SHORT", debitAccountCode: overShortCode, creditAccountCode: tillCode, amountMinor: -diff, sourceType: "till_close", sourceId: `${business_date}:TELLER-01`, valueDate: business_date },
+          ? { eventType: "TILL_OVER", debitAccountCode: tillCode, creditAccountCode: overShortCode, amountMinor: diff, sourceType: "till_close", sourceId: tillCloseSourceId(business_date, TILL_CODE), valueDate: business_date }
+          : { eventType: "TILL_SHORT", debitAccountCode: overShortCode, creditAccountCode: tillCode, amountMinor: -diff, sourceType: "till_close", sourceId: tillCloseSourceId(business_date, TILL_CODE), valueDate: business_date },
           clock);
       });
     }
