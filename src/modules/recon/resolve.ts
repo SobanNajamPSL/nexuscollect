@@ -310,7 +310,18 @@ export async function listBreaks(
       "approval.payload as proposed_payload",
     ])
     .orderBy("recon_break.severity", "asc")
-    .orderBy("recon_break.break_code", "asc");
+    .orderBy("recon_break.break_code", "asc")
+    // Stable tiebreakers, because severity and code are not unique — the two
+    // unmatched-bank-credit breaks share both, and without these they swapped places
+    // between runs. Row order is something the camera sees, so it has to be
+    // deterministic like everything else.
+    //
+    // Deliberately *not* the primary key: break ids are generated fresh on every
+    // reconciliation run, so ordering by id is stable within a run and useless
+    // across them. These are natural keys — the same three breaks always sort the
+    // same way, whenever the run happens.
+    .orderBy("recon_break.amount_minor", "desc")
+    .orderBy("recon_break.narrative_raw", "asc");
 
   if (filters.businessDate) q = q.where("recon_break.business_date", "=", filters.businessDate);
   if (filters.status) q = q.where("recon_break.status", "=", filters.status);

@@ -697,7 +697,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       .selectFrom("instrument")
       .innerJoin("agency", "agency.id", "instrument.agency_id")
       .select(["instrument.id", "instrument.instrument_type", "instrument.instrument_number", "instrument.drawee_bank_name", "instrument.drawer_name", "instrument.amount_minor", "instrument.status", "instrument.lodged_on", "instrument.returned_on", "instrument.return_reason_code", "instrument.dishonour_charge_assessment_id", "agency.code as agency_code"])
+      // Every seeded instrument shares a created_at, because the loader runs on the
+      // pinned demonstration clock — so this needs a tiebreaker or the list
+      // reorders between runs.
       .orderBy("instrument.created_at", "desc")
+      .orderBy("instrument.instrument_number", "asc")
       .limit(50)
       .execute();
     return reply.code(200).send(rows.map((r) => ({ id: r.id, instrument_type: r.instrument_type, instrument_number: r.instrument_number, drawee_bank_name: r.drawee_bank_name, drawer_name: r.drawer_name, amount_minor: toWireMinor(r.amount_minor), status: r.status, lodged_on: r.lodged_on, returned_on: r.returned_on, return_reason_code: r.return_reason_code, dishonour_charge_assessment_id: r.dishonour_charge_assessment_id, agency_code: r.agency_code })));
@@ -1393,7 +1397,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // the five §10.8 control assertions as five ticks.
   app.get("/internal/ops/overview", async (request, reply) => {
     const { business_date } = request.query as { business_date: string };
-    const uncertain = await db.selectFrom("payment").select(["payment_reference", "received_at"]).where("status", "=", "UNCERTAIN").execute();
+    // Oldest first: this feeds the "oldest item" age on the operator's Today screen,
+    // which is the figure that actually matters about this queue.
+    const uncertain = await db.selectFrom("payment").select(["payment_reference", "received_at"]).where("status", "=", "UNCERTAIN").orderBy("received_at", "asc").execute();
     const oldestUncertainAgeMs = uncertain.length > 0 ? Math.max(0, ...uncertain.map((u) => clock.now().getTime() - u.received_at.getTime())) : 0;
     const breakAgeing = await reports.r04BreakRegisterAgeing(db, business_date);
     const settlement = await reports.r05SettlementSweepReport(db, business_date);
@@ -1480,6 +1486,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       .selectFrom("payment")
       .select(["id", "payment_reference", "status", "gross_amount_minor", "channel", "rail", "value_date"])
       .where((eb) => eb.or([eb("payment_reference", "ilike", `%${q}%`), eb("rail_e2e_id", "ilike", `%${q}%`), eb("switch_stan", "=", q)]))
+      // Deterministic order, and newest first: a search with a LIMIT and no ORDER BY
+      // returns an arbitrary 50 of the matches, which is worse than unstable —
+      // it is a different result set each time.
+      .orderBy("value_date", "desc")
+      .orderBy("payment_reference", "asc")
       .limit(50)
       .execute();
     return reply.code(200).send(rows.map((r) => ({ id: r.id, payment_reference: r.payment_reference, status: r.status, gross_amount_minor: toWireMinor(r.gross_amount_minor), channel: r.channel, rail: r.rail, value_date: r.value_date })));
@@ -1490,10 +1501,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const payment = await db.selectFrom("payment").selectAll().where("payment_reference", "=", paymentReference).executeTakeFirst();
     if (!payment) return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payment "${paymentReference}".`, retryable: false });
 
-    const allocations = await db.selectFrom("payment_allocation").innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id").innerJoin("revenue_head", "revenue_head.id", "payment_allocation.revenue_head_id").select(["assessment.psid", "revenue_head.code as head_code", "payment_allocation.amount_minor", "payment_allocation.status"]).where("payment_allocation.payment_id", "=", payment.id).execute();
-    const journalLines = await db.selectFrom("journal_line").innerJoin("journal_entry", "journal_entry.id", "journal_line.entry_id").select(["journal_entry.entry_no", "journal_entry.event_type", "journal_line.account_code", "journal_line.direction", "journal_line.amount_minor"]).where("journal_entry.source_type", "=", "payment").where("journal_entry.source_id", "=", payment.id).execute();
+    const allocations = await db.selectFrom("payment_allocation").innerJoin("assessment", "assessment.id", "payment_allocation.assessment_id").innerJoin("revenue_head", "revenue_head.id", "payment_allocation.revenue_head_id").select(["assessment.psid", "revenue_head.code as head_code", "payment_allocation.amount_minor", "payment_allocation.status"]).where("payment_allocation.payment_id", "=", payment.id).orderBy("assessment.psid", "asc").orderBy("revenue_head.code", "asc").execute();
+    const journalLines = await db.selectFrom("journal_line").innerJoin("journal_entry", "journal_entry.id", "journal_line.entry_id").select(["journal_entry.entry_no", "journal_entry.event_type", "journal_line.account_code", "journal_line.direction", "journal_line.amount_minor"]).where("journal_entry.source_type", "=", "payment").where("journal_entry.source_id", "=", payment.id).orderBy("journal_entry.entry_no", "asc").orderBy("journal_line.account_code", "asc").execute();
     const receipt = await db.selectFrom("receipt").select(["receipt_no", "status"]).where("payment_id", "=", payment.id).executeTakeFirst();
-    const breaks = await db.selectFrom("recon_break").select(["break_code", "status", "amount_minor"]).where("payment_id", "=", payment.id).execute();
+    const breaks = await db.selectFrom("recon_break").select(["break_code", "status", "amount_minor"]).where("payment_id", "=", payment.id).orderBy("break_code", "asc").execute();
 
     return reply.code(200).send({
       payment_reference: payment.payment_reference, status: payment.status, gross_amount_minor: toWireMinor(payment.gross_amount_minor), unapplied_amount_minor: toWireMinor(payment.unapplied_amount_minor),
@@ -1514,8 +1525,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (!current) return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Assessment not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No assessment "${psid}".`, retryable: false });
 
     const versions = await db.selectFrom("assessment").select(["id", "version", "status", "assessed_amount_minor", "payable_amount_minor", "allocated_amount_minor", "balance_minor"]).where("psid", "=", psid).orderBy("version", "asc").execute();
-    const lineItems = await db.selectFrom("assessment_line_item").innerJoin("revenue_head", "revenue_head.id", "assessment_line_item.revenue_head_id").select(["revenue_head.code as head_code", "assessment_line_item.line_type", "assessment_line_item.amount_minor", "assessment_line_item.allocated_minor"]).where("assessment_line_item.assessment_id", "=", current.id).execute();
-    const allocations = await db.selectFrom("payment_allocation").innerJoin("payment", "payment.id", "payment_allocation.payment_id").select(["payment.payment_reference", "payment_allocation.amount_minor", "payment_allocation.status", "payment_allocation.applied_at", "payment.status as payment_status"]).where("payment_allocation.assessment_id", "=", current.id).execute();
+    const lineItems = await db.selectFrom("assessment_line_item").innerJoin("revenue_head", "revenue_head.id", "assessment_line_item.revenue_head_id").select(["revenue_head.code as head_code", "assessment_line_item.line_type", "assessment_line_item.amount_minor", "assessment_line_item.allocated_minor"]).where("assessment_line_item.assessment_id", "=", current.id).orderBy("assessment_line_item.seq", "asc").execute();
+    const allocations = await db.selectFrom("payment_allocation").innerJoin("payment", "payment.id", "payment_allocation.payment_id").select(["payment.payment_reference", "payment_allocation.amount_minor", "payment_allocation.status", "payment_allocation.applied_at", "payment.status as payment_status"]).where("payment_allocation.assessment_id", "=", current.id).orderBy("payment_allocation.applied_at", "asc").orderBy("payment.payment_reference", "asc").execute();
     const notifications = await db.selectFrom("notification_log").select(["event_type", "channel", "status", "sent_at"]).where("assessment_id", "=", current.id).execute();
 
     return reply.code(200).send({
@@ -1530,7 +1541,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // Payer 360° view
   app.get("/internal/payers/search", async (request, reply) => {
     const { q } = request.query as { q: string };
-    const rows = await db.selectFrom("payer").select(["id", "name", "payer_type", "msisdn_e164"]).where("name", "ilike", `%${q}%`).limit(50).execute();
+    const rows = await db.selectFrom("payer").select(["id", "name", "payer_type", "msisdn_e164"]).where("name", "ilike", `%${q}%`).orderBy("name", "asc").orderBy("id", "asc").limit(50).execute();
     return reply.code(200).send(rows);
   });
 
@@ -1539,8 +1550,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const payer = await db.selectFrom("payer").selectAll().where("id", "=", payerId).executeTakeFirst();
     if (!payer) return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Payer not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No payer "${payerId}".`, retryable: false });
 
-    const accounts = await db.selectFrom("payer_account").innerJoin("agency", "agency.id", "payer_account.agency_id").select(["agency.code as agency_code", "payer_account.crn", "payer_account.status"]).where("payer_account.payer_id", "=", payerId).execute();
-    const assessments = await db.selectFrom("assessment").select(["psid", "status", "balance_minor"]).where("payer_id", "=", payerId).execute();
+    const accounts = await db.selectFrom("payer_account").innerJoin("agency", "agency.id", "payer_account.agency_id").select(["agency.code as agency_code", "payer_account.crn", "payer_account.status"]).where("payer_account.payer_id", "=", payerId).orderBy("agency.code", "asc").orderBy("payer_account.crn", "asc").execute();
+    const assessments = await db.selectFrom("assessment").select(["psid", "status", "balance_minor"]).where("payer_id", "=", payerId).orderBy("psid", "asc").execute();
     // `payment` has no direct payer_id column — the real link is via the
     // assessment(s) it settled (payment_allocation -> assessment.payer_id).
     const payments = await db
@@ -1574,13 +1585,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // Unapplied receipts queue
   app.get("/internal/unapplied-receipts", async (_request, reply) => {
-    const rows = await db.selectFrom("payment").select(["payment_reference", "unapplied_amount_minor", "value_date", "channel", "rail", "remittance_raw"]).where("unapplied_amount_minor", ">", 0n).where("status", "=", "CONFIRMED").execute();
+    const rows = await db.selectFrom("payment").select(["payment_reference", "unapplied_amount_minor", "value_date", "channel", "rail", "remittance_raw"]).where("unapplied_amount_minor", ">", 0n).where("status", "=", "CONFIRMED").orderBy("value_date", "asc").orderBy("payment_reference", "asc").execute();
     return reply.code(200).send(rows.map((r) => ({ payment_reference: r.payment_reference, amount_minor: toWireMinor(r.unapplied_amount_minor), value_date: r.value_date, channel: r.channel, rail: r.rail, remittance_raw: r.remittance_raw })));
   });
 
   // UNCERTAIN payments queue
   app.get("/internal/payments/uncertain", async (_request, reply) => {
-    const rows = await db.selectFrom("payment").select(["payment_reference", "gross_amount_minor", "channel", "rail", "received_at", "uncertain_resolution_source"]).where("status", "=", "UNCERTAIN").execute();
+    const rows = await db.selectFrom("payment").select(["payment_reference", "gross_amount_minor", "channel", "rail", "received_at", "uncertain_resolution_source"]).where("status", "=", "UNCERTAIN").orderBy("received_at", "asc").orderBy("payment_reference", "asc").execute();
     return reply.code(200).send(rows.map((r) => ({ payment_reference: r.payment_reference, gross_amount_minor: toWireMinor(r.gross_amount_minor), channel: r.channel, rail: r.rail, received_at: r.received_at.toISOString(), uncertain_resolution_source: r.uncertain_resolution_source })));
   });
 
@@ -1650,7 +1661,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   // Agency & product configuration
   app.get("/internal/agencies", async (_request, reply) => {
-    const rows = await db.selectFrom("agency").select(["code", "name", "tier", "settlement_model", "sweep_schedule", "status"]).execute();
+    const rows = await db.selectFrom("agency").select(["code", "name", "tier", "settlement_model", "sweep_schedule", "status"]).orderBy("code", "asc").execute();
     return reply.code(200).send(rows);
   });
 
@@ -1658,7 +1669,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const { agency_code } = request.query as { agency_code?: string };
     let q = db.selectFrom("collection_product").innerJoin("agency", "agency.id", "collection_product.agency_id").select(["collection_product.id", "agency.code as agency_code", "collection_product.code", "collection_product.category", "collection_product.status", "collection_product.overpay_treatment", "collection_product.allocation_waterfall"]);
     if (agency_code) q = q.where("agency.code", "=", agency_code);
-    const rows = await q.execute();
+    // Deterministic order: a list a screen renders must not reorder between runs.
+    const rows = await q.orderBy("agency.code", "asc").orderBy("collection_product.code", "asc").execute();
     return reply.code(200).send(rows);
   });
 
@@ -1666,7 +1678,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const { agency_code } = request.query as { agency_code?: string };
     let q = db.selectFrom("reference_scheme").innerJoin("agency", "agency.id", "reference_scheme.agency_id").select(["reference_scheme.id", "reference_scheme.code", "reference_scheme.prefix", "reference_scheme.total_length", "agency.code as agency_code"]);
     if (agency_code) q = q.where("agency.code", "=", agency_code);
-    const rows = await q.execute();
+    // Deterministic order: a list a screen renders must not reorder between runs.
+    const rows = await q.orderBy("agency.code", "asc").orderBy("reference_scheme.code", "asc").execute();
     return reply.code(200).send(rows);
   });
 
@@ -1674,7 +1687,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const { agency_code } = request.query as { agency_code?: string };
     let q = db.selectFrom("revenue_head").innerJoin("agency", "agency.id", "revenue_head.agency_id").select(["revenue_head.id", "revenue_head.code", "revenue_head.name", "agency.code as agency_code"]);
     if (agency_code) q = q.where("agency.code", "=", agency_code);
-    const rows = await q.execute();
+    // Deterministic order: a list a screen renders must not reorder between runs.
+    const rows = await q.orderBy("agency.code", "asc").orderBy("revenue_head.code", "asc").execute();
     return reply.code(200).send(rows);
   });
 

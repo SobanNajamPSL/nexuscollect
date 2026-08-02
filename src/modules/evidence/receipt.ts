@@ -114,13 +114,24 @@ export async function mintReceiptsForSettledAssessments(trx: Transaction<Databas
     .innerJoin("payment_allocation", "payment_allocation.assessment_id", "assessment.id")
     .innerJoin("payment", "payment.id", "payment_allocation.payment_id")
     .innerJoin("agency", "agency.id", "payment.agency_id")
-    .select(["payment.id as payment_id", "payment.agency_id", "payment.value_date", "agency.code as agency_code"])
+    .select(["payment.id as payment_id", "payment.agency_id", "payment.value_date", "agency.code as agency_code", "payment.payment_reference"])
     .where("assessment.status", "=", "SETTLED")
     .where("payment_allocation.status", "=", "APPLIED")
     .distinct()
-    .orderBy("payment.agency_id", "asc")
+    // Ordered by *natural* keys, never by `payment.id`.
+    //
+    // Receipt numbers are gapless per agency per day, so which payment gets which
+    // number depends entirely on the order this walks them in. `payment.id` is a
+    // fresh UUID on every seed, so ordering by it made the numbers shuffle among
+    // themselves each time the database was rebuilt — the same settled bill would
+    // show receipt …004 on one reset and …003 on the next.
+    //
+    // That is visible to the camera: the citizen portal prints the receipt number,
+    // the manual quotes it, and the film shows it. `payment_reference` comes from
+    // the seed data itself and does not move.
+    .orderBy("agency.code", "asc")
     .orderBy("payment.value_date", "asc")
-    .orderBy("payment.id", "asc")
+    .orderBy("payment.payment_reference", "asc")
     .execute();
 
   // Running per-(agency, business_date) counters, seeded from whatever's

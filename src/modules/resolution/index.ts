@@ -209,6 +209,11 @@ async function loadCandidateAssessments(db: Kysely<Database>, assessmentIds: rea
       "reference_scheme.total_length as reference_scheme_total_length",
     ])
     .where("assessment.id", "in", assessmentIds as string[])
+    // The payer sees this order, so it must not change between runs. Agency then
+    // PSID: bills group under the agency that issued them, which is also how the
+    // citizen portal renders them.
+    .orderBy("agency.name", "asc")
+    .orderBy("assessment.psid", "asc")
     .execute();
 
   return rows.map((r) => ({
@@ -385,6 +390,7 @@ async function resolveByIndex(db: Kysely<Database>, keyType: string, keyValue: s
     .where("key_type", "=", keyType)
     .where("key_value_norm", "=", normalized)
     .where("is_open", "=", true)
+    .orderBy("assessment_id", "asc")
     .execute();
   return rows.map((r) => r.assessment_id);
 }
@@ -393,14 +399,14 @@ async function resolveByIdentity(db: Kysely<Database>, keyType: string, keyValue
   const hash = hashPrimaryId(keyType, keyValue);
   const payer = await db.selectFrom("payer").select("id").where("primary_id_hash", "=", hash).executeTakeFirst();
   if (!payer) return [];
-  const rows = await db.selectFrom("assessment").select("id").where("payer_id", "=", payer.id).execute();
+  const rows = await db.selectFrom("assessment").select("id").where("payer_id", "=", payer.id).orderBy("psid", "asc").execute();
   return rows.map((r) => r.id);
 }
 
 async function resolveByRaastId(db: Kysely<Database>, raastIdValue: string): Promise<string[]> {
   const payer = await db.selectFrom("payer").select("id").where("raast_id_value", "=", raastIdValue).executeTakeFirst();
   if (!payer) return [];
-  const rows = await db.selectFrom("assessment").select("id").where("payer_id", "=", payer.id).execute();
+  const rows = await db.selectFrom("assessment").select("id").where("payer_id", "=", payer.id).orderBy("psid", "asc").execute();
   return rows.map((r) => r.id);
 }
 
