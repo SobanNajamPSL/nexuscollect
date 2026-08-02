@@ -1,31 +1,29 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import "@shared/base.css";
 import "./index.css";
 import { PersonaProvider } from "@shared/PersonaContext.js";
 import App from "./App.js";
 import Today from "./pages/Today.js";
-import { OPS_NAV, findNavItem } from "./nav.js";
-
-/**
- * Screens still to migrate here render a labelled placeholder that names what
- * will live at the route. A blank page in a demonstration reads as a bug; an
- * explicit "not yet built" reads as scope.
- */
-function PendingRoute(): JSX.Element {
-  const { pathname } = useLocation();
-  const item = findNavItem(pathname);
-  return (
-    <div className="space-y-3 max-w-3xl">
-      <div className="flex items-baseline gap-3">
-        <h1 className="text-lg font-semibold">{item?.label ?? "Screen"}</h1>
-        <span className="badge badge-warn">Not yet migrated</span>
-      </div>
-      <div className="panel p-4 text-op-inkDim leading-relaxed">{item?.note ?? "This screen has not been built."}</div>
-    </div>
-  );
-}
+import Payments from "./pages/Payments.js";
+import Payers from "./pages/Payers.js";
+import Assessments from "./pages/Assessments.js";
+import Uncertain from "./pages/Uncertain.js";
+import Unapplied from "./pages/Unapplied.js";
+import ReconRuns from "./pages/ReconRuns.js";
+import Breaks from "./pages/Breaks.js";
+import Refunds from "./pages/Refunds.js";
+import Disputes from "./pages/Disputes.js";
+import Approvals from "./pages/Approvals.js";
+import Instruments from "./pages/Instruments.js";
+import Sweep from "./pages/Sweep.js";
+import Bulk from "./pages/Bulk.js";
+import Controls from "./pages/Controls.js";
+import Audit from "./pages/Audit.js";
+import Overview from "./pages/Overview.js";
+import Reports from "./pages/Reports.js";
+import Roles from "./pages/Roles.js";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -34,9 +32,24 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <Routes>
           <Route path="/" element={<App />}>
             <Route index element={<Today />} />
-            {OPS_NAV.flatMap((g) => g.items).map((item) => (
-              <Route key={item.to} path={item.to.slice(1)} element={<PendingRoute />} />
-            ))}
+            <Route path="payments" element={<Payments />} />
+            <Route path="payers" element={<Payers />} />
+            <Route path="assessments" element={<Assessments />} />
+            <Route path="uncertain" element={<Uncertain />} />
+            <Route path="unapplied" element={<Unapplied />} />
+            <Route path="recon" element={<ReconRuns />} />
+            <Route path="breaks" element={<Breaks />} />
+            <Route path="refunds" element={<Refunds />} />
+            <Route path="disputes" element={<Disputes />} />
+            <Route path="approvals" element={<Approvals />} />
+            <Route path="instruments" element={<Instruments />} />
+            <Route path="sweep" element={<Sweep />} />
+            <Route path="bulk" element={<Bulk />} />
+            <Route path="controls" element={<Controls />} />
+            <Route path="audit" element={<Audit />} />
+            <Route path="overview" element={<Overview />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="roles" element={<Roles />} />
           </Route>
         </Routes>
       </BrowserRouter>

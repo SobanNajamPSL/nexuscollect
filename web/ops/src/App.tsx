@@ -70,15 +70,14 @@ export default function App(): JSX.Element {
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `flex items-center justify-between gap-1 px-3 py-1 text-[13px] ${
+                    `block px-3 py-1 text-[13px] ${
                       isActive
                         ? "bg-op-primary/[0.08] text-op-primary font-semibold"
                         : "text-op-ink hover:bg-op-panelAlt"
                     }`
                   }
                 >
-                  <span>{item.label}</span>
-                  {!item.built && <span className="text-[9px] text-op-warn font-bold uppercase">soon</span>}
+                  {item.label}
                 </NavLink>
               ))}
             </div>

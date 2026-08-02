@@ -76,11 +76,14 @@ export async function r04BreakRegisterAgeing(db: Kysely<Database>, asOfDate: str
 
 // R05 — Settlement & Sweep Report
 export async function r05SettlementSweepReport(db: Kysely<Database>, businessDate: string) {
-  const scrolls = await db.selectFrom("scroll").innerJoin("agency", "agency.id", "scroll.agency_id").select(["agency.code as agency_code", "scroll.scroll_reference", "scroll.control_total_minor", "scroll.status", "scroll.ack_status"]).where("scroll.business_date", "=", businessDate).execute();
+  const scrolls = await db.selectFrom("scroll").innerJoin("agency", "agency.id", "scroll.agency_id").select(["scroll.id", "agency.code as agency_code", "scroll.scroll_reference", "scroll.control_total_minor", "scroll.status", "scroll.ack_status"]).where("scroll.business_date", "=", businessDate).execute();
   const sweeps = await db.selectFrom("payment").innerJoin("agency", "agency.id", "payment.agency_id").select(["agency.code as agency_code", "payment.payment_reference", "payment.gross_amount_minor"]).where("payment.direction", "=", "OUTBOUND").where("payment.value_date", "=", businessDate).execute();
   return {
     businessDate,
-    scrolls: scrolls.map((s) => ({ agencyCode: s.agency_code, scrollReference: s.scroll_reference, controlTotalMinor: s.control_total_minor, status: s.status, ackStatus: s.ack_status })),
+    // The scroll id travels with the row so an operator can record treasury's
+    // response against it; without it the acknowledgement route is unreachable
+    // from any screen that lists scrolls.
+    scrolls: scrolls.map((s) => ({ id: s.id, agencyCode: s.agency_code, scrollReference: s.scroll_reference, controlTotalMinor: s.control_total_minor, status: s.status, ackStatus: s.ack_status })),
     sweeps: sweeps.map((s) => ({ agencyCode: s.agency_code, paymentReference: s.payment_reference, amountMinor: s.gross_amount_minor })),
   };
 }
