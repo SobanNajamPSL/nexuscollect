@@ -25,7 +25,7 @@
  *   npx tsx scripts/record-demo.ts --beats   the standalone clips only
  *   npx tsx scripts/record-demo.ts           both
  */
-import { mkdir, readdir, rename, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -33,6 +33,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = join(__dirname, "..", "docs", "demo", "recordings");
 const RAW = join(OUT, "raw");
+const NARRATION_DIR = join(__dirname, "..", "docs", "demo", "narration");
 const API = "http://localhost:3000";
 
 const CITIZEN = "http://pay.localhost:5174";
@@ -68,6 +69,14 @@ const dry = process.argv.includes("--dry");
 const keep = process.argv.includes("--keep");
 /** `--only=02-counter` re-records or rehearses one beat without redoing the rest. */
 const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
+/**
+ * Write the narration manifest instead of just rehearsing.
+ *
+ * The captions are the narration script, and they live here rather than in a
+ * document — so the recording sheets a person reads from are *generated* from the
+ * same calls that put text on screen. There is no second copy to drift.
+ */
+const writeManifest = process.argv.includes("--manifest");
 
 /**
  * Reading time, derived from the caption rather than fixed.
@@ -96,6 +105,47 @@ function readingTime(text: string): number {
 async function pause(page: Page, ms: number): Promise<void> {
   await page.waitForTimeout(dry ? Math.min(ms, 150) : ms);
 }
+
+/**
+ * The narration, captured as the film is walked.
+ *
+ * `beat` and `index` together identify a line, and that pair is also how its audio
+ * file is found (`docs/demo/narration/audio/<beat>/<index>.wav`). `startedAtMs` is
+ * filled in during a real recording so a narration track can be assembled against
+ * the finished video afterwards.
+ */
+interface NarrationLine {
+  beat: string;
+  index: number;
+  title: string;
+  body: string;
+  words: number;
+  heldMs: number;
+  startedAtMs?: number;
+}
+
+const narration: NarrationLine[] = [];
+let currentBeat = "";
+let beatLineCount = 0;
+/** Wall-clock start of the current recording, for caption offsets. */
+let recordingStartedAt: number | null = null;
+
+/**
+ * How long a narrated line has been recorded as running, if it has been.
+ *
+ * Once a human has read the script, the *audio* decides how long its caption stays
+ * on screen — not an estimate from its word count. Getting this the wrong way round
+ * is what makes a voiceover drift out of step with the picture.
+ */
+let audioDurations: Record<string, number> = {};
+
+function narrationKey(beat: string, index: number): string {
+  return `${beat}/${String(index).padStart(2, "0")}`;
+}
+
+/** Breathing room either side of a spoken line, so it never sounds clipped. */
+const NARRATION_LEAD_MS = 350;
+const NARRATION_TAIL_MS = 650;
 
 // --- The caption overlay -----------------------------------------------------
 
@@ -139,8 +189,26 @@ interface CaptionWindow {
 }
 
 async function caption(page: Page, title: string, body = ""): Promise<void> {
+  const index = ++beatLineCount;
+  const key = narrationKey(currentBeat, index);
+
+  // Narration length wins when it exists; the word-count estimate is the fallback
+  // for a line nobody has recorded yet, so a partly-narrated film still works.
+  const spokenMs = audioDurations[key];
+  const heldMs = spokenMs !== undefined ? NARRATION_LEAD_MS + spokenMs + NARRATION_TAIL_MS : readingTime(`${title} ${body}`);
+
+  narration.push({
+    beat: currentBeat,
+    index,
+    title,
+    body,
+    words: `${title} ${body}`.trim().split(/\s+/).filter(Boolean).length,
+    heldMs,
+    ...(recordingStartedAt !== null ? { startedAtMs: Date.now() - recordingStartedAt } : {}),
+  });
+
   await page.evaluate(([t, b]) => (globalThis as unknown as CaptionWindow).__caption(t!, b!), [title, body]);
-  await pause(page, readingTime(`${title} ${body}`));
+  await pause(page, heldMs);
 }
 
 async function clearCaption(page: Page): Promise<void> {
@@ -776,7 +844,10 @@ async function recordFilm(browser: Browser): Promise<void> {
   const page = await context.newPage();
   page.on("pageerror", (err) => process.stderr.write(`  ! pageerror: ${err.message}\n`));
 
+  recordingStartedAt = Date.now();
   for (const beat of BEATS) {
+    currentBeat = beat.id;
+    beatLineCount = 0;
     process.stdout.write(`  ${beat.id} — ${beat.title}\n`);
     // The film runs the arc in order, so each beat's state is produced by the
     // beats before it — except where the arc itself skipped ahead.
@@ -798,6 +869,10 @@ async function recordFilm(browser: Browser): Promise<void> {
 async function recordBeats(browser: Browser): Promise<void> {
   process.stdout.write("\nStandalone beats\n");
   for (const beat of BEATS.filter((b) => !only || b.id === only)) {
+    currentBeat = beat.id;
+    beatLineCount = 0;
+    // Offsets in a standalone clip are relative to that clip, not to the film.
+    recordingStartedAt = Date.now();
     process.stdout.write(`  ${beat.id} — ${beat.title}\n`);
     await resetDemo();
     await beat.prepare?.();
@@ -813,9 +888,80 @@ async function recordBeats(browser: Browser): Promise<void> {
   }
 }
 
+/**
+ * Load the measured length of each narrated line, if `measure-narration` has run.
+ *
+ * Absent, the film falls back to its word-count estimate — so this pipeline degrades
+ * to exactly the current behaviour rather than breaking when there is no audio yet.
+ */
+async function loadAudioDurations(): Promise<void> {
+  try {
+    audioDurations = JSON.parse(await readFile(join(NARRATION_DIR, "durations.json"), "utf8")) as Record<string, number>;
+    const n = Object.keys(audioDurations).length;
+    process.stdout.write(`Narration: ${n} line${n === 1 ? "" : "s"} measured — captions will be held to the voice.\n`);
+  } catch {
+    audioDurations = {};
+  }
+}
+
+/**
+ * Write the manifest and the per-beat recording sheets.
+ *
+ * The sheets are what a person actually reads from, so they carry only what helps
+ * while recording: the line, its number, and roughly how long it should take. The
+ * manifest beside them is the machine-readable version the rest of the pipeline uses.
+ */
+async function writeNarrationManifest(): Promise<void> {
+  await mkdir(NARRATION_DIR, { recursive: true });
+  await writeFile(join(NARRATION_DIR, "manifest.json"), `${JSON.stringify(narration, null, 2)}\n`, "utf8");
+
+  const byBeat = new Map<string, NarrationLine[]>();
+  for (const line of narration) byBeat.set(line.beat, [...(byBeat.get(line.beat) ?? []), line]);
+
+  const titles = new Map(BEATS.map((b) => [b.id, b.title]));
+  let index = `# Narration — recording sheets\n\n`;
+  index += `Generated by \`npx tsx scripts/record-demo.ts --dry --manifest\`. Do not edit by hand:\n`;
+  index += `these lines are the captions the film puts on screen, so the script and the picture\n`;
+  index += `cannot disagree. Change the wording in \`scripts/record-demo.ts\` and regenerate.\n\n`;
+  index += `## How to record\n\n`;
+  index += `One file per beat is easiest — read the numbered lines in order, leaving a clear\n`;
+  index += `**one to two second pause** between them. The pauses are how the pipeline finds\n`;
+  index += `where each line ends, so they matter more than they look like they should.\n\n`;
+  index += "```\ndocs/demo/narration/audio/<beat-id>.wav        one take for the whole beat\n";
+  index += "docs/demo/narration/audio/<beat-id>/01.wav    or one file per line, if you prefer\n```\n\n";
+  index += `WAV or AIFF, mono is fine, 44.1 kHz or better. Then:\n\n`;
+  index += "```bash\nnpx tsx scripts/measure-narration.ts\n```\n\n";
+  index += `which splits any whole-beat takes, checks it found the right number of lines, and\n`;
+  index += `writes \`durations.json\`. After that, re-record the film and the beats as usual and\n`;
+  index += `every caption is held to the length of its narration instead of an estimate.\n\n`;
+  index += `## Beats\n\n| Beat | Lines | Words | Est. spoken |\n|---|---|---|---|\n`;
+
+  for (const [beat, lines] of byBeat) {
+    const words = lines.reduce((sum, l) => sum + l.words, 0);
+    const seconds = Math.round((words / 165) * 60);
+    index += `| [${beat}](${beat}.md) — ${titles.get(beat) ?? ""} | ${lines.length} | ${words} | ~${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s |\n`;
+
+    const total = lines.reduce((sum, l) => sum + l.words, 0);
+    let sheet = `# ${beat} — ${titles.get(beat) ?? ""}\n\n`;
+    sheet += `${lines.length} lines, ${total} words, roughly ${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s at a measured pace.\n\n`;
+    sheet += `Read the lines in order. **Pause for one to two seconds between them** — that is how\n`;
+    sheet += `the split finds the boundaries. The bold part is the on-screen heading; you can read\n`;
+    sheet += `it as the opening phrase of the sentence or skip it, whichever sounds natural.\n\n---\n\n`;
+    for (const line of lines) {
+      sheet += `### ${String(line.index).padStart(2, "0")}\n\n**${line.title}.**`;
+      sheet += line.body ? ` ${line.body}\n\n` : `\n\n`;
+    }
+    await writeFile(join(NARRATION_DIR, `${beat}.md`), sheet, "utf8");
+  }
+
+  await writeFile(join(NARRATION_DIR, "README.md"), index, "utf8");
+  process.stdout.write(`\nNarration manifest: ${narration.length} lines across ${byBeat.size} beats → docs/demo/narration/\n`);
+}
+
 async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
   await mkdir(RAW, { recursive: true });
+  await loadAudioDurations();
 
   const wantFilm = !process.argv.includes("--beats");
   const wantBeats = !process.argv.includes("--film");
@@ -833,6 +979,13 @@ async function main(): Promise<void> {
   if (leftovers.length === 0) await rm(RAW, { recursive: true, force: true });
 
   if (!keep) await resetDemo();
+  if (writeManifest) await writeNarrationManifest();
+  else if (!dry) {
+    // A real take records where every caption actually landed, so a narration track
+    // can be assembled against the finished video without guessing.
+    await mkdir(NARRATION_DIR, { recursive: true });
+    await writeFile(join(NARRATION_DIR, "timings.json"), `${JSON.stringify(narration, null, 2)}\n`, "utf8");
+  }
   process.stdout.write(dry ? "\nRehearsal complete — no video written.\n" : "\nRecording complete.\n");
 }
 

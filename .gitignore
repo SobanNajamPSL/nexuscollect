@@ -15,3 +15,10 @@ coverage/
 docs/demo/recordings/*.webm
 docs/demo/recordings/raw/
 capture-problems.txt
+
+# Narration takes. The recording sheets and the manifest are committed; the audio
+# itself is large, is yours rather than the repo's, and is regenerable output once
+# measured (durations.json / audio-files.json).
+docs/demo/narration/audio/
+docs/demo/narration/durations.json
+docs/demo/narration/audio-files.json

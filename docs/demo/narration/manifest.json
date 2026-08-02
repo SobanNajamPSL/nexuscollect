@@ -1,0 +1,470 @@
+[
+  {
+    "beat": "00-cold-open",
+    "index": 1,
+    "title": "NexusCollect — collecting money owed to government",
+    "body": "Start where the audience cares: what one agency can say about its own money, on one business date.",
+    "words": 25,
+    "heldMs": 9650,
+    "startedAtMs": 699
+  },
+  {
+    "beat": "00-cold-open",
+    "index": 2,
+    "title": "Three numbers, never one",
+    "body": "Confirmed is what has been applied to this agency's bills. Settled is which bills that discharged. Swept is cash that has actually reached the treasury account. A collection system that reports one figure called 'collected' is misstating its own position.",
+    "words": 44,
+    "heldMs": 16300,
+    "startedAtMs": 852
+  },
+  {
+    "beat": "00-cold-open",
+    "index": 3,
+    "title": "Broken down by revenue head",
+    "body": "Government reporting is organised by head, not by transaction. Surcharge is collected against its own head rather than folded into the tax it accrued on, which is what makes it separately auditable.",
+    "words": 37,
+    "heldMs": 13850,
+    "startedAtMs": 1183
+  },
+  {
+    "beat": "00-cold-open",
+    "index": 4,
+    "title": "And what is still owed",
+    "body": "Thirty-one bills raised, PKR 220,900.00 outstanding. Now rewind and watch one day's money produce those numbers.",
+    "words": 21,
+    "heldMs": 8250,
+    "startedAtMs": 1499
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 1,
+    "title": "Before waiting, ask",
+    "body": "Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.",
+    "words": 37,
+    "heldMs": 13850,
+    "startedAtMs": 2448
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 2,
+    "title": "Fourteen requests, in eight different states",
+    "body": "Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.",
+    "words": 33,
+    "heldMs": 12450,
+    "startedAtMs": 2600
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 3,
+    "title": "Request R260005, for PKR 16,500.00",
+    "body": "Delivered to the payer's phone, not yet opened.",
+    "words": 13,
+    "heldMs": 5450,
+    "startedAtMs": 2916
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 4,
+    "title": "The payer opens it",
+    "body": "Presented — it is now in front of them.",
+    "words": 13,
+    "heldMs": 5450,
+    "startedAtMs": 3296
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 5,
+    "title": "And accepts — which is not the same as paying",
+    "body": "Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled.",
+    "words": 35,
+    "heldMs": 13150,
+    "startedAtMs": 3621
+  },
+  {
+    "beat": "02-request-fulfilled",
+    "index": 1,
+    "title": "The payer pays it — through their own bank",
+    "body": "Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works.",
+    "words": 38,
+    "heldMs": 14200,
+    "startedAtMs": 4587
+  },
+  {
+    "beat": "02-request-fulfilled",
+    "index": 2,
+    "title": "Paid, and receipted",
+    "body": "PKR 16,500.00, against the bill the request named.",
+    "words": 11,
+    "heldMs": 4750,
+    "startedAtMs": 5327
+  },
+  {
+    "beat": "02-request-fulfilled",
+    "index": 3,
+    "title": "FULFILLED — and nobody pressed anything",
+    "body": "The platform recognised its own money and closed the request. That distinction is the whole reason fulfilment is a separate step from acceptance: an agency needs to know which of its requests were *paid*, not merely which were agreed to.",
+    "words": 46,
+    "heldMs": 17000,
+    "startedAtMs": 6349
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 1,
+    "title": "The citizen portal",
+    "body": "Public. No account, no password, no sign-in. A bill is found with a reference the payer already has in their hand.",
+    "words": 24,
+    "heldMs": 9300,
+    "startedAtMs": 7308
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 2,
+    "title": "One vehicle registration, two agencies, three bills",
+    "body": "LEA-17-1000 returns bills from the Excise department and from the Safe Cities Authority, in one list, for PKR 16,750.00. Without a shared platform this payer visits two organisations.",
+    "words": 35,
+    "heldMs": 13150,
+    "startedAtMs": 7744
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 3,
+    "title": "The discount is live, and already applied",
+    "body": "PKR 1,250.00 off the moving-violation challan while it lasts. The PKR 3,750.00 shown is what will be charged — and what the ledger will record.",
+    "words": 32,
+    "heldMs": 12100,
+    "startedAtMs": 8084
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 4,
+    "title": "A bill already paid comes back with its receipt",
+    "body": "Not an error, and not an empty result. Showing the payer proof they already paid is what prevents the commonest duplicate payment there is.",
+    "words": 33,
+    "heldMs": 12450,
+    "startedAtMs": 8404
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 5,
+    "title": "One tap — but two payments, and two receipts",
+    "body": "A payment belongs to exactly one agency, because the sweep moves it into one treasury account and the scroll is emitted per agency. So the split is real. That is also the answer to 'how do I know my money is mine': it was never mixed.",
+    "words": 55,
+    "heldMs": 19000,
+    "startedAtMs": 8929
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 6,
+    "title": "The receipt is rendered from the signed payload",
+    "body": "Not from a convenient query — from the bytes that were cryptographically signed. A receipt that displays cannot disagree with a receipt that verifies.",
+    "words": 32,
+    "heldMs": 12100,
+    "startedAtMs": 9315
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 7,
+    "title": "Head-wise, and it adds up",
+    "body": "PKR 6,750.00 across three revenue heads and two bills. The discounted challan contributes 3,750.00, not its 5,000.00 principal. A receipt whose parts do not sum to its total is the first thing an auditor rejects.",
+    "words": 40,
+    "heldMs": 14900,
+    "startedAtMs": 9633
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 8,
+    "title": "In Urdu, right-to-left, with the amount in words",
+    "body": "The words are what make a printed receipt hard to alter. Revenue head names stay in English deliberately — they are the agency's own published descriptions, and inventing translations would be fabricating reference data.",
+    "words": 42,
+    "heldMs": 15600,
+    "startedAtMs": 9972
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 9,
+    "title": "Verified in the browser, with nothing sent anywhere",
+    "body": "An Ed25519 check run locally against the public key on the receipt. No network, no database — which is what offline verification has to mean to be worth claiming.",
+    "words": 37,
+    "heldMs": 13850,
+    "startedAtMs": 10702
+  },
+  {
+    "beat": "03-citizen-pays",
+    "index": 10,
+    "title": "Change one digit and it fails",
+    "body": "Somebody holding the receipt and the public key, with no access to the platform at all, can tell a genuine receipt from an altered one.",
+    "words": 31,
+    "heldMs": 11750,
+    "startedAtMs": 11202
+  },
+  {
+    "beat": "04-counter",
+    "index": 1,
+    "title": "The same day, at a counter",
+    "body": "Oversized targets, high contrast, one task per screen — because this is used standing up, in poor light, with somebody waiting.",
+    "words": 27,
+    "heldMs": 10350,
+    "startedAtMs": 12320
+  },
+  {
+    "beat": "04-counter",
+    "index": 2,
+    "title": "Cash across the counter",
+    "body": "The amount due is computed live, so a surcharge that has accrued since the bill was printed is already in it. The teller reads it back before accepting the money.",
+    "words": 34,
+    "heldMs": 12800,
+    "startedAtMs": 12774
+  },
+  {
+    "beat": "04-counter",
+    "index": 3,
+    "title": "Tendered, and the change to return",
+    "body": "The platform works out the change so the teller does not have to.",
+    "words": 19,
+    "heldMs": 7550,
+    "startedAtMs": 13092
+  },
+  {
+    "beat": "04-counter",
+    "index": 4,
+    "title": "Nothing about cash is special-cased",
+    "body": "Same apply pipeline as a bank app: allocated across the bill's line items by the product's waterfall, posted to the ledger, receipted with a gapless per-agency number. The channel is CASH and the rail is CASH — and that is the only difference.",
+    "words": 48,
+    "heldMs": 17700,
+    "startedAtMs": 13503
+  },
+  {
+    "beat": "04-counter",
+    "index": 5,
+    "title": "Lodging a cheque",
+    "body": "A physical instrument accepted across the counter. This did not exist until the field portal was built: the platform could unwind a bounced cheque but had no way to accept one, because every seeded cheque came from the data loader.",
+    "words": 43,
+    "heldMs": 15950,
+    "startedAtMs": 14261
+  },
+  {
+    "beat": "04-counter",
+    "index": 6,
+    "title": "Cheque 004901, for PKR 247,968.00",
+    "body": "Tendered against one overdue sales-tax bill. Remember this cheque — the bank has not paid it yet.",
+    "words": 22,
+    "heldMs": 8600,
+    "startedAtMs": 14606
+  },
+  {
+    "beat": "04-counter",
+    "index": 7,
+    "title": "The credit is provisional, and stays provisional",
+    "body": "The bank can still take this money back, so it can never be swept to treasury, and the receipt says so on its face rather than implying the obligation is discharged.",
+    "words": 38,
+    "heldMs": 14200,
+    "startedAtMs": 15014
+  },
+  {
+    "beat": "04-counter",
+    "index": 8,
+    "title": "Closing the till",
+    "body": "The teller counts the drawer. Any difference from what the platform expected is posted to the ledger as a real over/short entry, not absorbed into a rounding line — and the trial balance still ties afterwards.",
+    "words": 39,
+    "heldMs": 14550,
+    "startedAtMs": 15769
+  },
+  {
+    "beat": "04-counter",
+    "index": 9,
+    "title": "Only a teller can accept money",
+    "body": "A branch supervisor cannot. A supervisor reverses a teller's mistakes, and somebody who can both take money and reverse it is not a control.",
+    "words": 30,
+    "heldMs": 11400,
+    "startedAtMs": 15923
+  },
+  {
+    "beat": "05-agency-position",
+    "index": 1,
+    "title": "Back to the agency, after the money moved",
+    "body": "Confirmed has risen by exactly the PKR 10,000.00 token tax that citizen paid. Nothing here is entered by hand — every figure is computed from the ledger at the demonstration business date.",
+    "words": 40,
+    "heldMs": 14900,
+    "startedAtMs": 16957
+  },
+  {
+    "beat": "05-agency-position",
+    "index": 2,
+    "title": "Swept is still zero, and that is correct",
+    "body": "The money is confirmed against the bills but has not left the collection account. Swept lags on purpose: it is the number a finance officer can trust precisely because it is the most conservative of the three.",
+    "words": 45,
+    "heldMs": 16650,
+    "startedAtMs": 17284
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 1,
+    "title": "The operator's back office",
+    "body": "Cross-agency, and organised around queues rather than dashboards. Reconciliation is three-way: the bank's statement, the switch's settlement file, and the rail's settlement file.",
+    "words": 27,
+    "heldMs": 10350,
+    "startedAtMs": 18416
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 2,
+    "title": "Eleven breaks — and eleven is the point",
+    "body": "Not ten, not twelve. The dataset has exactly eleven planted discrepancies and the engine finds exactly those, which is very hard to fake. Three of them resolve themselves.",
+    "words": 36,
+    "heldMs": 13500,
+    "startedAtMs": 18857
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 3,
+    "title": "A break is a disagreement, not missing money",
+    "body": "PKR 764,109.50 unexplained does not mean three quarters of a million rupees has gone. Most of these are filing problems — a treasury line posted to a head that is not valid for the period, a fee 7.50 above contract, a bank booking a day later than the platform.",
+    "words": 57,
+    "heldMs": 19000,
+    "startedAtMs": 19010
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 4,
+    "title": "The mechanical ones resolve themselves",
+    "body": "Two timing differences across a date boundary, and one settlement row the switch sent twice. Identifiable without a human, so no human is asked.",
+    "words": 29,
+    "heldMs": 11050,
+    "startedAtMs": 19348
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 5,
+    "title": "An analyst proposes a resolution",
+    "body": "Five options: match it manually, accept it as timing, reclassify it, write it off, or escalate to the agency. The narrative is not optional — somebody has to say what they found.",
+    "words": 37,
+    "heldMs": 13850,
+    "startedAtMs": 19842
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 6,
+    "title": "And cannot approve it",
+    "body": "It moves to awaiting approval. The analyst has no button to finish the job.",
+    "words": 18,
+    "heldMs": 7200,
+    "startedAtMs": 20345
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 7,
+    "title": "A different person, in a different role",
+    "body": "Maker-checker here is enforced twice: the same user id is refused, and proposing and approving require different roles. Two accounts belonging to one person defeats an id check — it does not defeat this.",
+    "words": 41,
+    "heldMs": 15250,
+    "startedAtMs": 20770
+  },
+  {
+    "beat": "06-reconcile",
+    "index": 8,
+    "title": "Resolved, with both names against it",
+    "body": "Who proposed it, who approved it, what they said, and when. That record is the reason a resolution can be trusted at all.",
+    "words": 29,
+    "heldMs": 11050,
+    "startedAtMs": 21126
+  },
+  {
+    "beat": "07-cheque-bounces",
+    "index": 1,
+    "title": "Three days later, the bank returns it",
+    "body": "Cheque 004901, PKR 247,968.00, insufficient funds — the one the teller took across the counter. One action, and watch what it has to undo.",
+    "words": 31,
+    "heldMs": 11750,
+    "startedAtMs": 22189
+  },
+  {
+    "beat": "07-cheque-bounces",
+    "index": 2,
+    "title": "Everything it funded, unwound at once",
+    "body": "Every allocation the cheque funded is reversed. Every bill it settled is un-settled. Every receipt it produced is VOIDED — never deleted, still linked to the original. Surcharge resumes from the ORIGINAL due date, so the bill gets no holiday for the time it sat as provisionally paid. The service gate closes again. And a dishonour charge is raised automatically.",
+    "words": 66,
+    "heldMs": 19000,
+    "startedAtMs": 22784
+  },
+  {
+    "beat": "07-cheque-bounces",
+    "index": 3,
+    "title": "And the receipt the payer is holding",
+    "body": "A receipt that verified as valid an hour ago now verifies as VOIDED, with the reason. That is why status is the headline of the public verification screen and not a footnote.",
+    "words": 39,
+    "heldMs": 14550,
+    "startedAtMs": 23596
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 1,
+    "title": "Five control assertions, re-performed on demand",
+    "body": "Not a status page. Every one of these is recomputed against the live ledger the moment you ask, because a stored 'all green' proves nothing.",
+    "words": 31,
+    "heldMs": 11750,
+    "startedAtMs": 24800
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 2,
+    "title": "Every entry balances, every cached balance rebuilds identically",
+    "body": "The third check is the quiet one: throw away every cached balance column, recompute from the allocations, and get the same numbers to the paisa. Cached figures are only ever a cache.",
+    "words": 40,
+    "heldMs": 14900,
+    "startedAtMs": 25125
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 3,
+    "title": "Now break it, on camera",
+    "body": "The harness bar has a button whose only purpose is to corrupt a row in the financial ledger. Nothing in the product can do this.",
+    "words": 30,
+    "heldMs": 11400,
+    "startedAtMs": 25277
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 4,
+    "title": "Caught, and named",
+    "body": "Not a general warning that something somewhere is wrong. The specific journal entry that was altered, by number — because each entry's hash covers the one before it, so a changed row can only be consistent with itself.",
+    "words": 41,
+    "heldMs": 15250,
+    "startedAtMs": 25809
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 5,
+    "title": "Reset, and verifiable again",
+    "body": "Same actions, same numbers, every take.",
+    "words": 10,
+    "heldMs": 4400,
+    "startedAtMs": 26936
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 6,
+    "title": "Finally, the money leaves",
+    "body": "The sweep moves confirmed, final money to treasury and refuses anything provisional. Run it for one agency and watch what it produces.",
+    "words": 26,
+    "heldMs": 10000,
+    "startedAtMs": 27700
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 7,
+    "title": "And the scroll goes with it",
+    "body": "One line per allocation, with a control total. It is never emitted unless that total ties exactly to the ledger — because treasury is being asked to acknowledge receipt of exactly what the platform says it sent.",
+    "words": 43,
+    "heldMs": 15950,
+    "startedAtMs": 28057
+  },
+  {
+    "beat": "08-prove-it",
+    "index": 8,
+    "title": "That is the whole argument",
+    "body": "One reference finds every bill. One payment is provably split across heads and agencies. Every discrepancy is found, and resolved by two people. Nothing reaches treasury unless it ties. And if anybody alters the record, the platform names what they touched.",
+    "words": 46,
+    "heldMs": 17000,
+    "startedAtMs": 28552
+  }
+]

@@ -89,6 +89,38 @@ numbers, and where a caption names a specific cheque the script locates that che
 by its number rather than clicking whatever happens to be first in the table — so
 the narration cannot drift away from what is being shown.
 
+## Narration
+
+The film is silent with captions burned in. To add a voiceover, the script is already
+written — the captions *are* the narration — and
+[`../narration/`](../narration/) holds a recording sheet per beat, generated from the
+same calls that put the text on screen, so the script and the picture cannot drift.
+
+```bash
+npx tsx scripts/record-demo.ts --dry --film --manifest   # regenerate the sheets
+# record docs/demo/narration/audio/<beat>.wav, one take per beat
+npx tsx scripts/measure-narration.ts                     # split on the pauses, measure
+npx tsx scripts/record-demo.ts                           # re-record, held to the voice
+npx tsx scripts/convert-recordings.sh                    # to H.264
+npx tsx scripts/mux-narration.ts                         # lay the audio on
+```
+
+The order matters. Narration has to be **measured before the film is recorded**,
+because the audio decides how long each caption stays on screen — an estimate from
+word count is only the fallback for lines nobody has read yet. Getting that backwards
+is what makes a voiceover drift out of step with the picture.
+
+Two consequences worth knowing:
+
+- **A partly-narrated film works.** Any line without audio falls back to its
+  word-count estimate, so beats can be recorded one at a time.
+- **Beat clips need their own pass.** A caption's offset in the film is not its offset
+  in the standalone clip, so `--beats` records its own timings and the muxer refuses
+  to mix the two rather than putting words under the wrong screen.
+
+Captions stay on screen with the voice, deliberately: a ministry will sometimes watch
+this muted in a meeting room, and the caption carries the exact wording.
+
 ## Format
 
 Recorded at 1920×1080. Playwright writes `.webm`; `scripts/convert-recordings.sh`

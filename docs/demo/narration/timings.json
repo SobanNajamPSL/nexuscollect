@@ -1,0 +1,47 @@
+[
+  {
+    "beat": "01-request-to-pay",
+    "index": 1,
+    "title": "Before waiting, ask",
+    "body": "Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.",
+    "words": 37,
+    "heldMs": 14186,
+    "startedAtMs": 1844
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 2,
+    "title": "Fourteen requests, in eight different states",
+    "body": "Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.",
+    "words": 33,
+    "heldMs": 16955,
+    "startedAtMs": 16033
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 3,
+    "title": "Request R260005, for PKR 16,500.00",
+    "body": "Delivered to the payer's phone, not yet opened.",
+    "words": 13,
+    "heldMs": 10729,
+    "startedAtMs": 33932
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 4,
+    "title": "The payer opens it",
+    "body": "Presented — it is now in front of them.",
+    "words": 13,
+    "heldMs": 4646,
+    "startedAtMs": 46362
+  },
+  {
+    "beat": "01-request-to-pay",
+    "index": 5,
+    "title": "And accepts — which is not the same as paying",
+    "body": "Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled.",
+    "words": 35,
+    "heldMs": 12060,
+    "startedAtMs": 52645
+  }
+]
