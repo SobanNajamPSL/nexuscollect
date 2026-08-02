@@ -140,12 +140,22 @@ the record that it was created.
 
 The platform asking to be paid, rather than waiting to be looked up. An agency
 raises a Request to Pay against an open bill and it travels through its own
-lifecycle — requested, sent, delivered, seen, then accepted, declined or expired —
-with each transition recorded.
+lifecycle, with every transition recorded:
 
-Acceptance links straight into payment capture, so an accepted request becomes a
-real payment on the same pipeline as any other channel. Nothing about the money
-path is special-cased for this route.
+`CREATED → SENT → DELIVERED → PRESENTED → ACCEPTED → FULFILLED`
+
+with `DECLINED`, `EXPIRED`, `CANCELLED` and `UNDELIVERABLE` as the other endings, and
+partial and future-dated acceptance as their own accepted states.
+
+**Acceptance is not payment**, and the distinction matters. Accepting a request is
+the payer agreeing to pay it; the money still moves through their own bank, on the
+ordinary channel pipeline, exactly as it would if they had looked the bill up
+themselves. The request is then *fulfilled* by linking that payment to it — which is
+what lets an agency see which of its requests actually produced money, and which are
+sitting accepted but unpaid.
+
+Nothing about the money path is special-cased for this route, which is the point: a
+Request to Pay changes who starts the conversation, not how the collection works.
 
 This screen is also where **mandates** become comprehensible: a standing mandate is
 an automated Request to Pay whose acceptance was granted once, in advance, when the
