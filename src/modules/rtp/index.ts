@@ -257,7 +257,24 @@ export async function remindRtp(trx: Transaction<Database>, rtpId: string, newEx
  * Called by the switch adapter's `notify` step (§8.6) after a successful capture.
  */
 export async function fulfillRtpWithPayment(trx: Transaction<Database>, rtpId: string, paymentId: string, actor: Actor, clock: Clock) {
-  const row = await trx.selectFrom("request_to_pay").select(["status"]).where("id", "=", rtpId).executeTakeFirstOrThrow();
+  const row = await trx
+    .selectFrom("request_to_pay")
+    .select(["status", "rtp_reference", "fulfilling_payment_id"])
+    .where("id", "=", rtpId)
+    .executeTakeFirstOrThrow();
+
+  // Idempotent for the payment that already fulfilled it.
+  //
+  // The apply pipeline now closes an accepted request as soon as the money lands, so
+  // an operator (or a rail callback) calling the fulfil endpoint afterwards is
+  // re-stating something already true. That should be a no-op, not a 500 — the same
+  // reasoning that makes every state-changing endpoint idempotent (§17.4).
+  //
+  // Fulfilling with a *different* payment is still refused: that would silently
+  // rewrite which credit discharged the request.
+  if (row.fulfilling_payment_id === paymentId) {
+    return { rtpReference: row.rtp_reference, status: row.status };
+  }
   const event: RtpEvent =
     row.status === "ACCEPTED_PARTIAL" ? "rtp.fulfilled_partial"
     : row.status === "EXPIRED" ? "rtp.fulfilled_late"

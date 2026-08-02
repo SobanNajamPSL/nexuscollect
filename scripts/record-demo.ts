@@ -232,6 +232,23 @@ async function payTheVehicleBills(): Promise<void> {
   }
 }
 
+/**
+ * Walk the seeded request to ACCEPTED, for the clip that begins after that point.
+ * Uses the same endpoints the agency portal's own buttons call.
+ */
+async function acceptSeededRequest(): Promise<void> {
+  const list = await fetch(`${API}/internal/rtp`).then((r) => r.json() as Promise<{ id: string; rtp_reference: string; status: string }[]>);
+  const rtp = list.find((r) => r.rtp_reference === RTP_REFERENCE);
+  if (!rtp) return;
+  for (const action of ["present", "accept"]) {
+    await fetch(`${API}/internal/rtp/${rtp.id}/transition`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+  }
+}
+
 async function runReconciliation(): Promise<void> {
   await fetch(`${API}/internal/recon/run`, {
     method: "POST",
@@ -269,8 +286,94 @@ const coldOpen: Beat = {
   },
 };
 
+/**
+ * The bill the seeded Request to Pay R260005 is raised against — a real ETPB motor
+ * vehicle bill, still unpaid. Held as a constant so the beat and its caption cannot
+ * drift apart.
+ */
+const RTP_REFERENCE = "R260005";
+const RTP_PSID = "31010900000396648";
+
+const requestToPay: Beat = {
+  id: "01-request-to-pay",
+  title: "The agency asks to be paid",
+  run: async (page) => {
+    await go(page, `${AGENCY}/request-to-pay`);
+    await becomePersona(page, AGENCY_ADMIN);
+    await caption(
+      page,
+      "Before waiting, ask",
+      "Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.",
+    );
+    await caption(
+      page,
+      "Fourteen requests, in eight different states",
+      "Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.",
+    );
+
+    const row = page.locator("tr", { hasText: RTP_REFERENCE }).first();
+    await row.scrollIntoViewIfNeeded();
+    await pause(page, 900);
+    await caption(page, `Request ${RTP_REFERENCE}, for PKR 16,500.00`, "Delivered to the payer's phone, not yet opened.");
+
+    await row.getByRole("button", { name: "Mark presented" }).click();
+    await page.getByText("PRESENTED").first().waitFor({ timeout: 15_000 });
+    await pause(page, BEAT);
+    await caption(page, "The payer opens it", "Presented — it is now in front of them.");
+
+    await page.locator("tr", { hasText: RTP_REFERENCE }).first().getByRole("button", { name: "Payer accepts" }).click();
+    await page.getByText("ACCEPTED").first().waitFor({ timeout: 15_000 });
+    await pause(page, BEAT);
+    await caption(
+      page,
+      "And accepts — which is not the same as paying",
+      "Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled.",
+    );
+    await clearCaption(page);
+    await pause(page, LINGER);
+  },
+};
+
+const requestFulfilled: Beat = {
+  id: "02-request-fulfilled",
+  title: "The money arrives, and the request closes itself",
+  prepare: async () => {
+    await acceptSeededRequest();
+  },
+  run: async (page) => {
+    await go(page, CITIZEN);
+    await caption(
+      page,
+      "The payer pays it — through their own bank",
+      "Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works.",
+    );
+
+    await page.getByLabel("What do you have?").selectOption("PSID");
+    await page.getByLabel("Bill number (PSID)", { exact: true }).fill(RTP_PSID);
+    await page.getByRole("button", { name: "Find my bills" }).click();
+    await page.getByText("outstanding").first().waitFor({ timeout: 15_000 });
+    await pause(page, BEAT);
+    await page.getByRole("button", { name: /^Pay all/ }).click();
+    await page.getByText("OFFICIAL RECEIPT").first().waitFor({ timeout: 25_000 });
+    await pause(page, BEAT);
+    await caption(page, "Paid, and receipted", "PKR 16,500.00, against the bill the request named.");
+
+    await go(page, `${AGENCY}/request-to-pay`);
+    await becomePersona(page, AGENCY_ADMIN);
+    await page.locator("tr", { hasText: RTP_REFERENCE }).first().scrollIntoViewIfNeeded();
+    await pause(page, 900);
+    await caption(
+      page,
+      "FULFILLED — and nobody pressed anything",
+      "The platform recognised its own money and closed the request. That distinction is the whole reason fulfilment is a separate step from acceptance: an agency needs to know which of its requests were *paid*, not merely which were agreed to.",
+    );
+    await clearCaption(page);
+    await pause(page, LINGER);
+  },
+};
+
 const citizenPays: Beat = {
-  id: "01-citizen-pays",
+  id: "03-citizen-pays",
   title: "A citizen pays bills across two agencies",
   run: async (page) => {
     await go(page, CITIZEN);
@@ -356,7 +459,7 @@ const citizenPays: Beat = {
 };
 
 const counter: Beat = {
-  id: "02-counter",
+  id: "04-counter",
   title: "A teller takes cash and lodges a cheque",
   run: async (page) => {
     await go(page, FIELD);
@@ -428,7 +531,7 @@ const counter: Beat = {
 };
 
 const agencySeesIt: Beat = {
-  id: "03-agency-position",
+  id: "05-agency-position",
   title: "The agency's position has moved",
   prepare: payTheVehicleBills,
   run: async (page) => {
@@ -451,7 +554,7 @@ const agencySeesIt: Beat = {
 };
 
 const reconcile: Beat = {
-  id: "04-reconcile",
+  id: "06-reconcile",
   title: "Reconciling the day, under maker-checker",
   prepare: payTheVehicleBills,
   run: async (page) => {
@@ -537,7 +640,7 @@ async function lodgeTheCheque(): Promise<void> {
 }
 
 const chequeBounces: Beat = {
-  id: "05-cheque-bounces",
+  id: "07-cheque-bounces",
   title: "The cheque bounces, and six things unwind",
   prepare: lodgeTheCheque,
   run: async (page) => {
@@ -576,7 +679,7 @@ const chequeBounces: Beat = {
 };
 
 const proveIt: Beat = {
-  id: "06-prove-it",
+  id: "08-prove-it",
   title: "Prove it: five assertions, a tamper, and the scroll",
   prepare: async () => {
     await payTheVehicleBills();
@@ -642,7 +745,7 @@ const proveIt: Beat = {
   },
 };
 
-const BEATS: Beat[] = [coldOpen, citizenPays, counter, agencySeesIt, reconcile, chequeBounces, proveIt];
+const BEATS: Beat[] = [coldOpen, requestToPay, requestFulfilled, citizenPays, counter, agencySeesIt, reconcile, chequeBounces, proveIt];
 
 // --- Running -----------------------------------------------------------------
 
@@ -678,6 +781,8 @@ async function recordFilm(browser: Browser): Promise<void> {
     // The film runs the arc in order, so each beat's state is produced by the
     // beats before it — except where the arc itself skipped ahead.
     if (beat === agencySeesIt) await payTheVehicleBills();
+    // requestToPay already walked the request to ACCEPTED on camera, so the
+    // fulfilment beat needs no preparation here.
     if (beat === proveIt) await runReconciliation();
     // beat 02 lodged the cheque through the UI, so beat 05 needs no preparation here.
     await beat.run(page);

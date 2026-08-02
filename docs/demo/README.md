@@ -13,7 +13,7 @@ platform does.
 ## What is delivered
 
 **One continuous film** (`nexuscollect-full-demonstration`) following the whole arc,
-and **seven standalone clips** (`beat-00-…` to `beat-06-…`) covering the same
+and **nine standalone clips** (`beat-00-…` to `beat-08-…`) covering the same
 material one beat at a time — so any single moment can be dropped into a deck, or
 re-recorded, without redoing the rest.
 
@@ -30,12 +30,18 @@ about its own money — and only then rewinds to show how that figure came to ex
 | Beat | What it shows |
 |---|---|
 | 0 | **Cold open.** An agency's collection position: confirmed, settled and swept as three separate numbers, broken down by revenue head. |
-| 1 | **A citizen pays.** One vehicle registration returns three bills across two agencies. A live discount. An already-paid bill returned with its receipt. One tap produces two payments and two receipts. The receipt in English and Urdu, verified offline in the browser, then failing when a digit is altered. |
-| 2 | **The counter.** A teller takes cash — capturing the amount owed and returning the change — then lodges a cheque whose credit is provisional and stays that way. |
-| 3 | **The agency again.** The position has moved by exactly what happened. Swept is still zero, and that is correct. |
-| 4 | **Reconciliation.** Eleven breaks, three of which resolve themselves. An analyst proposes a resolution and cannot approve it; an approver in a different role does. |
-| 5 | **The cheque bounces.** One action unwinds every allocation, un-settles every bill, voids every receipt, resumes surcharge from the original due date, re-closes the service gate, and raises a dishonour charge. The payer's receipt now verifies as voided. |
-| 6 | **Prove it.** Five control assertions re-performed against the live ledger. Then the ledger is deliberately corrupted from outside the product, and the platform names the specific journal entry that was altered. Reset, verify again, and sweep to treasury with a scroll whose control total ties. |
+| 1 | **The agency asks to be paid.** A Request to Pay through its lifecycle — fourteen requests across eight states, one taken from delivered to presented to accepted. Accepting is agreeing, not paying: no money has moved and the bill is still outstanding. |
+| 2 | **The request closes itself.** The payer pays through their own bank, on the ordinary pipeline, and the request goes to FULFILLED with nobody pressing anything — because an agency needs to know which of its requests were *paid*, not merely which were agreed to. |
+| 3 | **A citizen pays cold.** No request involved: one vehicle registration returns three bills across two agencies. A live discount. An already-paid bill returned with its receipt. One tap produces two payments and two receipts. The receipt in English and Urdu, verified offline in the browser, then failing when a digit is altered. |
+| 4 | **The counter.** A teller takes cash — capturing the amount owed and returning the change — then lodges a cheque whose credit is provisional and stays that way. |
+| 5 | **The agency again.** The position has moved by exactly what happened. Swept is still zero, and that is correct. |
+| 6 | **Reconciliation.** Eleven breaks, three of which resolve themselves. An analyst proposes a resolution and cannot approve it; an approver in a different role does. |
+| 7 | **The cheque bounces.** One action unwinds every allocation, un-settles every bill, voids every receipt, resumes surcharge from the original due date, re-closes the service gate, and raises a dishonour charge. The payer's receipt now verifies as voided. |
+| 8 | **Prove it.** Five control assertions re-performed against the live ledger. Then the ledger is deliberately corrupted from outside the product, and the platform names the specific journal entry that was altered. Reset, verify again, and sweep to treasury with a scroll whose control total ties. |
+
+Beats 1–3 are deliberately both ways round: the platform pulling (a request the payer
+accepts) and the payer arriving cold with a reference. They are different journeys
+and an agency will ask about both.
 
 ## Recording it again
 
@@ -51,8 +57,8 @@ npx tsx scripts/record-demo.ts --beats   # just the standalone clips
 Two flags are for working on a take rather than producing one:
 
 ```bash
-npx tsx scripts/record-demo.ts --beats --only=04-reconcile   # re-record one beat
-npx tsx scripts/record-demo.ts --dry --keep --only=02-counter  # leave the data to inspect
+npx tsx scripts/record-demo.ts --beats --only=06-reconcile   # re-record one beat
+npx tsx scripts/record-demo.ts --dry --keep --only=04-counter  # leave the data to inspect
 ```
 
 **Always rehearse with `--dry` first.** It runs every interaction and every

@@ -51,6 +51,12 @@ real. The integrations they would call — a rail status enquiry, a statement in
 — are stubbed, because there is no rail to call in a demonstration. The stubs are
 stubs in the code, not simulated successes.
 
+**Request to Pay delivery.** The lifecycle, the state machine, the audit trail and
+automatic fulfilment on payment are all real. What is *not* real is the delivery
+channel: no notification is sent to the payer's phone, so the payer's own steps
+(opening the request, accepting it) are driven from the agency screen in the
+demonstration. The film says so plainly rather than implying a message went out.
+
 **Print-and-pay challan.** Rendered as HTML rather than PDF.
 
 **Break severities and thresholds.** Where the specification marks a figure as

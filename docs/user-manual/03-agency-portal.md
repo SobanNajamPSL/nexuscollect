@@ -154,6 +154,13 @@ themselves. The request is then *fulfilled* by linking that payment to it — wh
 what lets an agency see which of its requests actually produced money, and which are
 sitting accepted but unpaid.
 
+**Fulfilment happens on its own.** When a payment settles every bill a request
+covers, the platform closes the request and records which payment did it. Nobody
+presses anything, because a request left open until an operator remembers to tick it
+off would make this screen answer the wrong question — accepted, rather than paid. A
+request covering three bills stays open until all three are settled, whichever
+payments settled them.
+
 Nothing about the money path is special-cased for this route, which is the point: a
 Request to Pay changes who starts the conversation, not how the collection works.
 

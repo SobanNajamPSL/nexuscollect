@@ -10,6 +10,7 @@ import { getOrCreateLedgerAccount, postJournalEntry } from "../ledger/index.js";
 import { parseNarrative } from "../resolution/narrative-parser.js";
 import { mintReceiptForPayment } from "../evidence/receipt.js";
 import { detectProbableDuplicate } from "../refund/duplicate-detection.js";
+import { fulfillRtpWithPayment } from "../rtp/index.js";
 
 /**
  * §11.1's apply pipeline, all 8 steps: identify → deduplicate → derive
@@ -414,7 +415,74 @@ async function runAllocation(trx: Transaction<Database>, paymentId: string, para
     ] }, clock);
   }
 
+  // A Request to Pay the payer accepted is fulfilled by the money arriving, not by
+  // somebody pressing a button. See `fulfilAcceptedRequests`.
+  await fulfilAcceptedRequests(trx, paymentId, settledAssessmentIds, clock);
+
   return { unappliedAmountMinor, settledAssessmentIds, journalPostings, derivationMethod, candidateAssessmentIds };
+}
+
+/**
+ * Close out any Request to Pay that this payment has just satisfied.
+ *
+ * Accepting a request and paying it are two different events (§9.2): acceptance is
+ * the payer agreeing, and the money still arrives through their own bank on the
+ * ordinary channel pipeline. What links the two is fulfilment — and fulfilment is
+ * the platform recognising its own money, not an operator remembering to record it.
+ *
+ * Without this the lifecycle stalled at ACCEPTED forever unless somebody called
+ * `POST /internal/rtp/:id/fulfil` by hand, which no screen offers. An agency could
+ * see which of its requests had been *accepted* and never which had been *paid* —
+ * which is the only one of the two questions that matters to a revenue officer.
+ *
+ * Deliberately narrow, because a request must never be closed by a payment that did
+ * not actually settle it:
+ *
+ *   - only requests whose every assessment is among those this payment settled,
+ *   - only from an accepted state (including future-dated, and expired-but-paid,
+ *     which `fulfillRtpWithPayment` maps to `rtp.fulfilled_late`),
+ *   - and never one already fulfilled, so a replayed apply is a no-op.
+ */
+async function fulfilAcceptedRequests(
+  trx: Transaction<Database>,
+  paymentId: string,
+  settledAssessmentIds: readonly string[],
+  clock: Clock,
+): Promise<void> {
+  if (settledAssessmentIds.length === 0) return;
+
+  const candidates = await trx
+    .selectFrom("request_to_pay")
+    .select(["id", "assessment_ids", "status"])
+    .where("status", "in", ["ACCEPTED", "ACCEPTED_FUTURE_DATED", "ACCEPTED_PARTIAL", "EXPIRED"])
+    .where("fulfilling_payment_id", "is", null)
+    .orderBy("rtp_reference", "asc")
+    .execute();
+
+  const settledNow = new Set(settledAssessmentIds);
+  for (const rtp of candidates) {
+    const ids = (rtp.assessment_ids ?? []) as string[];
+    if (ids.length === 0) continue;
+
+    // This payment has to be part of why the request is satisfied — otherwise an
+    // unrelated credit elsewhere would close somebody else's request.
+    if (!ids.some((id) => settledNow.has(id))) continue;
+
+    // But *every* bill the request covers must now be settled, whoever settled it.
+    // A request for three bills is not fulfilled by paying one of them — and the
+    // other two may well have been paid separately, earlier, which is why this asks
+    // the database rather than only looking at what this payment did.
+    const outstanding = await trx
+      .selectFrom("assessment")
+      .select("id")
+      .where("id", "in", ids)
+      .where("status", "!=", "SETTLED")
+      .executeTakeFirst();
+    if (outstanding) continue;
+
+    // The payment credited last is the one recorded as fulfilling it.
+    await fulfillRtpWithPayment(trx, rtp.id, paymentId, { actorType: "SYSTEM", actorId: "payment-apply" }, clock);
+  }
 }
 
 /** The 8-step apply pipeline (§11.1). Runs inside one transaction —

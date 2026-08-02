@@ -28,10 +28,52 @@ Bills issued: 1 issued, 9 overdue, 21 settled.
 
 ---
 
-## Beat 1 — A citizen pays bills across two agencies
+## Beat 1 — The agency asks to be paid
+
+**Portal:** agency, as Bilal Farooq (agency administrator, ETPB)
+**Screen:** Request to pay
+
+| Caption | |
+|---|---|
+| *Before waiting, ask* | Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded. |
+| *Fourteen requests, in eight different states* | Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how. |
+| *Request R260005, for PKR 16,500.00* | Delivered to the payer's phone, not yet opened. |
+| *The payer opens it* | Presented — it is now in front of them. |
+| *And accepts — which is not the same as paying* | Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled. |
+
+**On screen:** the seeded request `R260005` against PSID `31010900000396648`, walked
+`DELIVERED → PRESENTED → ACCEPTED` using the screen's own buttons.
+
+**Note on what this build does and does not do:** the payer's side of a Request to
+Pay is driven from the agency screen here, because there is no citizen inbox and the
+platform sends no real notification — see `KNOWN-GAPS.md`. The lifecycle, the state
+machine and the audit trail are real; the delivery channel is not.
+
+---
+
+## Beat 2 — The request closes itself
+
+**Portal:** citizen, then agency
+**Screens:** Find a bill → receipt → Request to pay
+
+| Caption | |
+|---|---|
+| *The payer pays it — through their own bank* | Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works. |
+| *Paid, and receipted* | PKR 16,500.00, against the bill the request named. |
+| *FULFILLED — and nobody pressed anything* | The platform recognised its own money and closed the request. That distinction is the whole reason fulfilment is a separate step from acceptance: an agency needs to know which of its requests were *paid*, not merely which were agreed to. |
+
+**On screen:** the request's status moving to `FULFILLED` with no operator action, and
+its `fulfilling_payment_id` pointing at the payment that settled it.
+
+---
+
+## Beat 3 — A citizen pays bills across two agencies, cold
 
 **Portal:** citizen (public, no persona)
 **Screens:** Find a bill → receipts → one receipt
+
+No request this time — the payer arrives with a reference and nothing else, which is
+the other half of the story.
 
 | Caption | |
 |---|---|
@@ -52,7 +94,7 @@ Bills issued: 1 issued, 9 overdue, 21 settled.
 
 ---
 
-## Beat 2 — The counter
+## Beat 4 — The counter
 
 **Portal:** field, as Nadia Aslam (teller)
 **Screens:** Take a payment → Lodge a cheque → Close the till
@@ -75,7 +117,7 @@ keeps. Cheque 004901 for PKR 247,968.00 against PSID 12010400001899869.
 
 ---
 
-## Beat 3 — The agency's position has moved
+## Beat 5 — The agency's position has moved
 
 **Portal:** agency, as Bilal Farooq
 **Screen:** Collection position
@@ -87,7 +129,7 @@ keeps. Cheque 004901 for PKR 247,968.00 against PSID 12010400001899869.
 
 ---
 
-## Beat 4 — Reconciliation, under maker-checker
+## Beat 6 — Reconciliation, under maker-checker
 
 **Portal:** operator, as Imran Qureshi (reconciliation analyst), then Ayesha Riaz (approver)
 **Screen:** Break register
@@ -109,7 +151,7 @@ B05 in the resolved section.
 
 ---
 
-## Beat 5 — The cheque bounces
+## Beat 7 — The cheque bounces
 
 **Portal:** operator → citizen
 **Screens:** Instrument clearing → public verification
@@ -122,7 +164,7 @@ B05 in the resolved section.
 
 ---
 
-## Beat 6 — Prove it
+## Beat 8 — Prove it
 
 **Portal:** operator, as Imran Qureshi
 **Screens:** Control assertions → Sweep operations

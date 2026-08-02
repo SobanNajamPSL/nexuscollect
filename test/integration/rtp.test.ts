@@ -54,12 +54,15 @@ describe("Phase 3b: Request to Pay — the full §9.2 state machine", () => {
     );
     expect(capture.status).toBe("CONFIRMED");
 
-    const fulfilled = await testDb.db.transaction().execute((trx) => fulfillRtpWithPayment(trx, rtpId, capture.paymentId, ACTOR, clock));
-    expect(fulfilled.status).toBe("FULFILLED");
-
+    // Capturing the payment fulfils the request on its own — the accepted request is
+    // closed by the money arriving, not by an operator remembering to record it.
     const final = await testDb.db.selectFrom("request_to_pay").select(["status", "fulfilling_payment_id"]).where("id", "=", rtpId).executeTakeFirstOrThrow();
     expect(final.status).toBe("FULFILLED");
     expect(final.fulfilling_payment_id).toBe(capture.paymentId);
+
+    // The explicit endpoint remains, and re-stating a fulfilment is a harmless replay.
+    const replayed = await testDb.db.transaction().execute((trx) => fulfillRtpWithPayment(trx, rtpId, capture.paymentId, ACTOR, clock));
+    expect(replayed.status).toBe("FULFILLED");
   });
 
   it("RT-0007 (DECLINED, already terminal): a further transition is illegal", async () => {
@@ -85,8 +88,15 @@ describe("Phase 3b: Request to Pay — the full §9.2 state machine", () => {
       },
       clock,
     );
-    const fulfilled = await testDb.db.transaction().execute((trx) => fulfillRtpWithPayment(trx, rtpId, capture.paymentId, ACTOR, clock));
-    expect(fulfilled.status).toBe("FULFILLED_LATE");
+    // Capturing the payment fulfils it on its own — an accepted (or, here, expired)
+    // request is closed by the money arriving, not by an operator recording it.
+    const afterPayment = await testDb.db.selectFrom("request_to_pay").select(["status", "fulfilling_payment_id"]).where("id", "=", rtpId).executeTakeFirstOrThrow();
+    expect(afterPayment.status).toBe("FULFILLED_LATE");
+    expect(afterPayment.fulfilling_payment_id).toBe(capture.paymentId);
+
+    // And calling the explicit endpoint afterwards is a harmless replay.
+    const replayed = await testDb.db.transaction().execute((trx) => fulfillRtpWithPayment(trx, rtpId, capture.paymentId, ACTOR, clock));
+    expect(replayed.status).toBe("FULFILLED_LATE");
   });
 
   it("a PRESENTED RtP past its expires_at is caught by the expiry sweep, using the injected clock only", async () => {
