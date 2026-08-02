@@ -450,10 +450,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     "/v1/payment-intents",
     { preHandler: requireInstitutionId, schema: { body: createPaymentIntentRequestSchema, response: { 201: paymentIntentResponseSchema, 401: problemSchema } } },
     async (request, reply) => {
-      const body = request.body as { resolution_token: string; channel: string; payer_id?: string };
+      const body = request.body as { resolution_token: string; channel: string; payer_id?: string; psids?: string[] };
       try {
         await handleIdempotently(request, reply, db, clock, "POST /v1/payment-intents", async () => {
-          const { intentReference } = await createPaymentIntent(db, { resolutionToken: body.resolution_token, channel: body.channel, ...(body.payer_id ? { payerId: body.payer_id } : {}), institutionId: String(request.headers["x-institution-id"]) }, clock);
+          const { intentReference } = await createPaymentIntent(db, { resolutionToken: body.resolution_token, channel: body.channel, ...(body.payer_id ? { payerId: body.payer_id } : {}), ...(body.psids ? { psids: body.psids } : {}), institutionId: String(request.headers["x-institution-id"]) }, clock);
           const intent = await db.selectFrom("payment_intent").selectAll().where("intent_reference", "=", intentReference).executeTakeFirstOrThrow();
           return {
             status: 201,
@@ -496,7 +496,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     },
   );
 
-  function mapPaymentToApi(payment: { payment_reference: string; status: string; gross_amount_minor: bigint; unapplied_amount_minor: bigint; currency: string; value_date: string; application_trace: unknown }, settledPsids: string[]) {
+  function mapPaymentToApi(payment: { payment_reference: string; status: string; gross_amount_minor: bigint; unapplied_amount_minor: bigint; currency: string; value_date: string; finality: string; application_trace: unknown }, settledPsids: string[]) {
     return {
       payment_reference: payment.payment_reference,
       status: payment.status,
@@ -504,6 +504,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       unapplied_amount_minor: toWireMinor(payment.unapplied_amount_minor),
       currency: payment.currency,
       value_date: payment.value_date,
+      finality: payment.finality,
       settled_psids: settledPsids,
       application_trace: payment.application_trace ?? {},
     };

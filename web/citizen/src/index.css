@@ -80,3 +80,19 @@ body {
     max-width: 420px;
   }
 }
+
+/**
+ * Urdu on the receipt.
+ *
+ * Nastaliq is a calligraphic script — it slopes, its glyphs stack, and it needs
+ * roughly twice the line height of Latin type to be readable rather than merely
+ * present. Getting this wrong is the usual reason a bilingual government receipt
+ * looks like an afterthought.
+ *
+ * The stack is deliberately local-first: a demonstration must render identically
+ * with no network, so no webfont is ever fetched.
+ */
+.urdu {
+  font-family: "Noto Nastaliq Urdu", "Urdu Typesetting", "Jameel Noori Nastaleeq", "Geeza Pro", "SF Arabic", serif;
+  line-height: 2.15;
+}

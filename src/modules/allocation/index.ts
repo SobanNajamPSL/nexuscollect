@@ -28,6 +28,55 @@ export interface OpenLine {
   balanceMinor: bigint;
 }
 
+/**
+ * Cap a set of open lines at what the assessment is actually collectible for.
+ *
+ * §6.4's invariants make the line items and the payable two different things:
+ *
+ *     Σ line_item.amount_minor = assessed_amount_minor
+ *     payable_amount_minor     = assessed_amount_minor − discount_applied_minor
+ *     balance_minor            = payable_amount_minor − allocated_amount_minor
+ *
+ * An early-payment discount therefore lives *outside* the line items — the
+ * `line_type` enum has no `DISCOUNT` member, and it must not, because the lines
+ * have to keep summing to the assessed amount. So the sum of line balances
+ * legitimately exceeds the assessment's balance by exactly the discount.
+ *
+ * Allocating against line balances without this cap over-credits the payer's
+ * bill by the discount and starves whatever the payment was meant to settle
+ * next: the payer hands over the discounted figure they were quoted, and the
+ * ledger recognises the undiscounted one. It also drives `balance_minor`
+ * negative, which §6.4 forbids outright.
+ *
+ * Which lines give up the excess is a choice the spec leaves open, so it is made
+ * here explicitly: the **principal** first, because §15.4 defines the discount as
+ * a percentage of principal and relieving anything else would misstate which head
+ * the relief belongs to; then, if the discount somehow exceeds the principal, the
+ * remaining lines in ascending `allocation_priority`, which is deterministic and
+ * matches the order the waterfall itself reasons in.
+ */
+export function capToPayableBalance(lines: readonly OpenLine[], payableBalanceMinor: bigint): OpenLine[] {
+  let excess = lines.reduce((sum, l) => sum + l.balanceMinor, 0n) - payableBalanceMinor;
+  if (excess <= 0n) return [...lines];
+
+  const relieveOrder = [...lines].sort((a, b) => {
+    const aPrincipal = a.lineType === "PRINCIPAL" ? 0 : 1;
+    const bPrincipal = b.lineType === "PRINCIPAL" ? 0 : 1;
+    return aPrincipal - bPrincipal || a.allocationPriority - b.allocationPriority || a.lineItemId.localeCompare(b.lineItemId);
+  });
+
+  const remaining = new Map(lines.map((l) => [l.lineItemId, l.balanceMinor]));
+  for (const line of relieveOrder) {
+    if (excess <= 0n) break;
+    const available = remaining.get(line.lineItemId)!;
+    const take = excess < available ? excess : available;
+    remaining.set(line.lineItemId, available - take);
+    excess -= take;
+  }
+
+  return lines.map((l) => ({ ...l, balanceMinor: remaining.get(l.lineItemId)! })).filter((l) => l.balanceMinor > 0n);
+}
+
 export interface ExplicitInstruction {
   lineItemId: string;
   amountMinor: bigint;

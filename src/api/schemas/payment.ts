@@ -15,6 +15,11 @@ export const createPaymentIntentRequestSchema = {
     resolution_token: { type: "string" },
     channel: { type: "string", enum: CHANNEL },
     payer_id: { type: "string" },
+    // Pay only some of what the token quoted — one intent per agency, because a
+    // payment belongs to exactly one agency and is swept into exactly one
+    // treasury account. Never a way to change an amount: the token still binds
+    // every price it issued.
+    psids: { type: "array", items: { type: "string" } },
   },
 } as const;
 
@@ -76,6 +81,11 @@ export const paymentResponseSchema = {
     unapplied_amount_minor: { type: "integer" },
     currency: { type: "string" },
     value_date: { type: "string" },
+    // FINAL or PROVISIONAL. A receipt for provisional money must say so on its
+    // face (§16.1), so the payer is not told an uncleared cheque has discharged
+    // their obligation — which is why this is on the payment response and not
+    // only in the operator's own view.
+    finality: { type: "string" },
     settled_psids: { type: "array", items: { type: "string" } },
     application_trace: { type: "object", additionalProperties: true },
   },

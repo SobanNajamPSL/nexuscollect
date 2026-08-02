@@ -4,36 +4,50 @@
     {
       "name": "agency",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev:agency"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev:agency"
+      ],
       "port": 5175,
       "url": "http://agency.localhost:5175"
     },
     {
       "name": "ops",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev:ops"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev:ops"
+      ],
       "port": 5176,
       "url": "http://ops.localhost:5176"
     },
     {
       "name": "citizen",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev:citizen"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev:citizen"
+      ],
       "port": 5174,
       "url": "http://pay.localhost:5174"
     },
     {
       "name": "field",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev:field"],
+      "runtimeArgs": [
+        "--prefix",
+        "web",
+        "run",
+        "dev:field"
+      ],
       "port": 5177,
       "url": "http://field.localhost:5177"
-    },
-    {
-      "name": "web-legacy",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "web", "run", "dev"],
-      "port": 5173
     }
   ]
 }

@@ -5,7 +5,7 @@ import type { Clock } from "../../platform/clock/index.js";
 import { verifyResolutionToken } from "../../platform/resolution-token/index.js";
 import { appendAuditEntry } from "../../platform/audit/index.js";
 import { appendOutboxEvent } from "../../platform/outbox/index.js";
-import { applyWaterfall, decideAssessmentOutcome, type OpenLine, type ExplicitInstruction, type Waterfall } from "../allocation/index.js";
+import { applyWaterfall, capToPayableBalance, decideAssessmentOutcome, type OpenLine, type ExplicitInstruction, type Waterfall } from "../allocation/index.js";
 import { getOrCreateLedgerAccount, postJournalEntry } from "../ledger/index.js";
 import { parseNarrative } from "../resolution/narrative-parser.js";
 import { mintReceiptForPayment } from "../evidence/receipt.js";
@@ -53,6 +53,20 @@ export interface CreatePaymentIntentInput {
   payerId?: string;
   resolutionToken: string;
   institutionId: string;
+  /**
+   * Pay only some of what the token quoted.
+   *
+   * One reference legitimately resolves to bills from several agencies at once —
+   * that is the point of a shared collection platform. But a `payment` belongs
+   * to exactly one agency (§6.4), and it has to: the sweep moves a payment into
+   * *an* agency's treasury account and the scroll is emitted per agency, so a
+   * single payment spanning two of them could never be settled correctly.
+   *
+   * So the payer's one action becomes one intent per agency. The token still
+   * binds every amount it quoted — this only narrows *which* of those bills this
+   * intent covers, which is why it cannot be used to change a price.
+   */
+  psids?: readonly string[];
 }
 
 /** Binds a Phase-1 `resolution_token` into a real intent — the amounts a
@@ -64,7 +78,11 @@ export async function createPaymentIntent(db: Kysely<Database>, input: CreatePay
   const verification = await verifyResolutionToken(input.resolutionToken, clock);
   if (!verification.valid) throw new ResolutionTokenInvalidError(verification.reason);
 
-  const totalMinor = verification.claims.payables.reduce((s, p) => s + BigInt(p.amountMinor), 0n);
+  const quoted = verification.claims.payables;
+  const payables = input.psids && input.psids.length > 0 ? quoted.filter((p) => input.psids!.includes(p.psid)) : quoted;
+  if (payables.length === 0) throw new ResolutionTokenInvalidError("none of the requested PSIDs were in the resolution token");
+
+  const totalMinor = payables.reduce((s, p) => s + BigInt(p.amountMinor), 0n);
   const intentReference = generateReference("IP");
   const quoteExpiresAt = new Date(clock.now().getTime() + 5 * 60 * 1000);
 
@@ -77,7 +95,7 @@ export async function createPaymentIntent(db: Kysely<Database>, input: CreatePay
       payer_id: input.payerId ?? null,
       requested_amount_minor: totalMinor,
       total_debit_minor: totalMinor,
-      requested_allocations: JSON.stringify(verification.claims.payables) as never,
+      requested_allocations: JSON.stringify(payables) as never,
       quote_expires_at: quoteExpiresAt,
       status: "CREATED",
       created_at: clock.now(),
@@ -198,9 +216,17 @@ async function loadOpenLines(db: Kysely<Database>, assessmentId: string): Promis
     .select(["id", "assessment_id", "line_type", "tax_period", "allocation_priority", "amount_minor", "allocated_minor"])
     .where("assessment_id", "=", assessmentId)
     .execute();
-  return rows
+  const open = rows
     .map((r) => ({ lineItemId: r.id, assessmentId: r.assessment_id, lineType: r.line_type, taxPeriod: r.tax_period, allocationPriority: r.allocation_priority, balanceMinor: r.amount_minor - r.allocated_minor }))
     .filter((l) => l.balanceMinor > 0n);
+
+  // The lines sum to the *assessed* amount; what is collectible is the
+  // *payable*, which is lower whenever a discount is live. Capping here rather
+  // than inside the waterfall keeps every waterfall honest for free — see
+  // `capToPayableBalance` for why the difference is real and not a rounding
+  // artefact.
+  const assessment = await db.selectFrom("assessment").select("balance_minor").where("id", "=", assessmentId).executeTakeFirstOrThrow();
+  return capToPayableBalance(open, assessment.balance_minor);
 }
 
 interface RunAllocationParams {

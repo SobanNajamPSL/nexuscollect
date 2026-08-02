@@ -10,9 +10,6 @@
     "field"
   ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
     "dev:citizen": "npm --workspace citizen run dev",
     "dev:agency": "npm --workspace agency run dev",
     "dev:ops": "npm --workspace ops run dev",
@@ -21,6 +18,8 @@
     "typecheck:portals": "npm --workspaces run typecheck"
   },
   "dependencies": {
+    "@types/qrcode": "^1.5.5",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"
