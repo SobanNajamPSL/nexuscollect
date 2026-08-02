@@ -68,8 +68,10 @@ h3,
   .statement tbody tr:last-child td {
     @apply border-b-0;
   }
+  /* Money never wraps. A figure broken across two lines is unreadable, and this
+     is an audience that reads figures for a living. */
   .statement .num {
-    @apply text-right tabular-nums;
+    @apply text-right tabular-nums whitespace-nowrap;
   }
   .statement tfoot td {
     @apply px-4 py-2 border-t-2 border-ag-ink/30 font-semibold;

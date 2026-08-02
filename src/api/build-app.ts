@@ -14,6 +14,7 @@ import {
   LineItemsOrphanAllocationError,
   type LineItemInput,
 } from "../modules/obligation/index.js";
+import { mintPsid, PsidNotMintableError } from "../modules/obligation/mint-psid.js";
 import { mapAssessmentToApi, findCurrentAssessmentIdByPsid } from "../modules/obligation/api-mapper.js";
 import { resolvePayer } from "./payer-lookup.js";
 import { requireInstitutionId } from "./auth-stub.js";
@@ -198,22 +199,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         metadata?: Record<string, unknown>;
       };
 
-      // §7.3's full PSID-minting algorithm (per-scheme sequence allocation,
-      // collision policy) isn't documented beyond length/prefix/checksum —
-      // inventing its internal digit layout would violate the "never
-      // fabricate a reference" rule, so Phase 1 requires the caller to supply
-      // one explicitly rather than guess at an undocumented composition.
-      if (!body.psid) {
-        return reply.code(422).send({
-          type: "https://errors.nexuscollect.example/INVALID_REFERENCE_FORMAT",
-          title: "psid is required",
-          status: 422,
-          code: "INVALID_REFERENCE_FORMAT",
-          detail: "Platform PSID minting isn't implemented in this phase (its digit composition beyond prefix/length/checksum isn't documented) — supply psid explicitly.",
-          retryable: false,
-        });
-      }
-
       const product = await db.selectFrom("collection_product").selectAll().where("code", "=", body.product_code).executeTakeFirst();
       if (!product) {
         return reply.code(422).send({
@@ -226,12 +211,33 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         });
       }
 
+      // §7.3: the platform mints the PSID for a platform-minted scheme, or
+      // accepts the agency's own reference where the scheme isn't. An agency
+      // cannot be expected to compose a 17-digit reference with a valid check
+      // digit by hand, which is what requiring `psid` here previously implied.
+      let psid: string;
+      try {
+        psid = body.psid ?? (await mintPsid(db, product.id, product.reference_scheme_id));
+      } catch (err) {
+        if (err instanceof PsidNotMintableError) {
+          return reply.code(err.httpStatus).send({
+            type: "https://errors.nexuscollect.example/INVALID_REFERENCE_FORMAT",
+            title: "psid is required for this scheme",
+            status: err.httpStatus,
+            code: err.code,
+            detail: err.message,
+            retryable: false,
+          });
+        }
+        throw err;
+      }
+
       await handleIdempotently(request, reply, db, clock, "POST /v1/agency/assessments", async () => {
         const payerId = await resolvePayer(db, body.payer_id, body.payer, clock);
         const { id } = await createAssessment(
           db,
           {
-            psid: body.psid as string,
+            psid,
             agencyId: product.agency_id,
             productId: product.id,
             ...(payerId !== undefined ? { payerId } : {}),
@@ -780,6 +786,104 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       total_settled_minor: toWireMinor(rows.reduce((s, r) => s + BigInt(r.allocated_minor), 0n)), // same real figure — allocation IS the settlement of that portion
       total_swept_minor: toWireMinor(BigInt(sweptRow?.total ?? 0n)),
       assessment_status_counts: statusCounts.map((s) => ({ status: s.status, count: Number(s.count), balance_total_minor: toWireMinor(BigInt(s.balance_total ?? 0n)) })),
+    });
+  });
+
+  /**
+   * An agency's own book of bills, browsable and filterable.
+   *
+   * This is genuinely new surface, not an unimplemented contract path: neither
+   * `api/openapi.yaml` nor this build had any way to *list* assessments — only
+   * single-PSID lookup (`GET /v1/agency/assessments/{psid}` and the 360° view).
+   * Which meant the one thing an agency finance officer would try first, on a
+   * portal built for them, was impossible.
+   *
+   * Superseded versions are excluded: `amendAssessment` marks the old row
+   * `AMENDED` and writes a new version under the same PSID, so including them
+   * would show each amended bill twice, once with stale figures.
+   */
+  app.get("/internal/agency/:agencyCode/assessments", async (request, reply) => {
+    const { agencyCode } = request.params as { agencyCode: string };
+    const q = request.query as { status?: string; q?: string; limit?: string; offset?: string };
+    const agency = await db.selectFrom("agency").select("id").where("code", "=", agencyCode).executeTakeFirst();
+    if (!agency) {
+      return reply.code(404).send({ type: "https://errors.nexuscollect.example/REFERENCE_NOT_FOUND", title: "Agency not found", status: 404, code: "REFERENCE_NOT_FOUND", detail: `No agency "${agencyCode}".`, retryable: false });
+    }
+
+    const limit = Math.min(Number(q.limit ?? 50), 200);
+    const offset = Number(q.offset ?? 0);
+    const search = q.q?.trim();
+
+    // Both the page query and the totals query need identical filtering over
+    // identical joins (the free-text search reaches into `payer.name`), so the
+    // shared part is built once and only the SELECT differs.
+    const filtered = () => {
+      let qb = db
+        .selectFrom("assessment")
+        .innerJoin("collection_product", "collection_product.id", "assessment.product_id")
+        .leftJoin("payer", "payer.id", "assessment.payer_id")
+        .where("assessment.agency_id", "=", agency.id)
+        .where("assessment.status", "!=", "AMENDED");
+      if (q.status) qb = qb.where("assessment.status", "=", q.status as never);
+      if (search) {
+        qb = qb.where((eb) =>
+          eb.or([
+            eb("assessment.psid", "like", `${search}%`),
+            eb("assessment.external_ref", "ilike", `%${search}%`),
+            eb("assessment.description", "ilike", `%${search}%`),
+            eb("payer.name", "ilike", `%${search}%`),
+          ]),
+        );
+      }
+      return qb;
+    };
+
+    const rows = await filtered()
+      .select([
+        "assessment.psid",
+        "assessment.version",
+        "assessment.status",
+        "assessment.description",
+        "assessment.external_ref",
+        "assessment.assessed_amount_minor",
+        "assessment.payable_amount_minor",
+        "assessment.allocated_amount_minor",
+        "assessment.balance_minor",
+        "assessment.issue_date",
+        "assessment.due_date",
+        "collection_product.code as product_code",
+        "payer.name as payer_name",
+      ])
+      .orderBy("assessment.due_date", "asc")
+      .orderBy("assessment.psid", "asc")
+      .limit(limit)
+      .offset(offset)
+      .execute();
+
+    const totalRow = await filtered()
+      .select(({ fn }) => [fn.countAll().as("count"), fn.sum<bigint>("assessment.balance_minor").as("balance_total")])
+      .executeTakeFirst();
+
+    return reply.code(200).send({
+      total: Number(totalRow?.count ?? 0),
+      total_balance_minor: toWireMinor(BigInt(totalRow?.balance_total ?? 0n)),
+      limit,
+      offset,
+      rows: rows.map((r) => ({
+        psid: r.psid,
+        version: r.version,
+        status: r.status,
+        description: r.description,
+        external_ref: r.external_ref,
+        product_code: r.product_code,
+        payer_name: r.payer_name,
+        assessed_amount_minor: toWireMinor(r.assessed_amount_minor),
+        payable_amount_minor: toWireMinor(r.payable_amount_minor),
+        allocated_amount_minor: toWireMinor(r.allocated_amount_minor),
+        balance_minor: toWireMinor(r.balance_minor),
+        issue_date: r.issue_date,
+        due_date: r.due_date,
+      })),
     });
   });
 

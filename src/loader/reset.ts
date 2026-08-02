@@ -66,6 +66,10 @@ export async function resetDemoData(db: Kysely<Database>, demoDataDir: string, c
       { id: "00000000-0000-4000-9000-000000000008", name: "Kamran Butt (Branch Supervisor)" },
       { id: "00000000-0000-4000-9000-000000000009", name: "Zara Hussain (Support Agent)" },
       { id: "00000000-0000-4000-9000-000000000010", name: "Tariq Mehmood (Auditor)" },
+      // A second agency administrator, so maker-checker on this agency's own
+      // configuration has an eligible checker whichever of them proposes
+      // (migration 0030).
+      { id: "00000000-0000-4000-9000-000000000011", name: "Hina Jamil (Agency Admin, ETPB)" },
     ])
     .execute();
   await db
@@ -81,6 +85,7 @@ export async function resetDemoData(db: Kysely<Database>, demoDataDir: string, c
       { user_id: "00000000-0000-4000-9000-000000000008", role_code: "BRANCH_SUPERVISOR" },
       { user_id: "00000000-0000-4000-9000-000000000009", role_code: "SUPPORT_AGENT" },
       { user_id: "00000000-0000-4000-9000-000000000010", role_code: "AUDITOR" },
+      { user_id: "00000000-0000-4000-9000-000000000011", role_code: "AGENCY_ADMIN" },
     ])
     .execute();
 
@@ -94,6 +99,10 @@ export async function resetDemoData(db: Kysely<Database>, demoDataDir: string, c
   await db
     .updateTable("platform_user")
     .set({ agency_id: (await db.selectFrom("agency").select("id").where("code", "=", "ETPB").executeTakeFirstOrThrow()).id })
-    .where("id", "in", ["00000000-0000-4000-9000-000000000001", "00000000-0000-4000-9000-000000000002"])
+    .where("id", "in", [
+      "00000000-0000-4000-9000-000000000001",
+      "00000000-0000-4000-9000-000000000002",
+      "00000000-0000-4000-9000-000000000011",
+    ])
     .execute();
 }

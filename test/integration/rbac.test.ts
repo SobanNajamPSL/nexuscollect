@@ -80,11 +80,14 @@ describe("Phase 11: RBAC (§3.2 roles, requireRole guard on product approval)", 
     expect(response.json().length).toBe(12);
   });
 
-  it("GET /internal/users returns the 10 seeded demo users with their role assignments", async () => {
+  it("GET /internal/users returns the seeded demo users with their role assignments", async () => {
     const response = await app.inject({ method: "GET", url: "/internal/users" });
     expect(response.statusCode).toBe(200);
     const users = response.json() as { id: string; name: string; roles: string[] }[];
-    expect(users.length).toBe(10);
+    // Ten from migration 0028, plus the second agency administrator added in
+    // 0030 so maker-checker on agency config has an eligible checker.
+    expect(users.length).toBe(11);
+    expect(users.filter((u) => u.roles.includes("AGENCY_ADMIN")).length).toBe(2);
     const admin = users.find((u) => u.id === AGENCY_ADMIN_ID);
     expect(admin?.roles).toEqual(["AGENCY_ADMIN"]);
   });
