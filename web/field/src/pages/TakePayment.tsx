@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "@shared/api.js";
-import { pkr, toMinor } from "@shared/money.js";
+import { pkr, splitCashTender, toMinor } from "@shared/money.js";
 import { businessDate, useDemoClock } from "@shared/demoClock.js";
 import { Head, Notice } from "../ui.js";
 
@@ -41,7 +41,7 @@ export default function TakePayment(): JSX.Element {
     setBusy(true); setError(null);
     try {
       const res = await api.post<{ payment_id: string; settled_assessment_ids: string[] }>("/internal/till/capture-cash", {
-        psid: selected.psid, amount_minor: toMinor(tendered), value_date: date,
+        psid: selected.psid, amount_minor: capturedMinor, value_date: date,
       }, { idempotent: false });
       setReceipt({ payment_id: res.payment_id, settled: res.settled_assessment_ids.length });
       setPayables(null); setSelected(null); setReference("");
@@ -50,7 +50,10 @@ export default function TakePayment(): JSX.Element {
     } finally { setBusy(false); }
   }
 
-  const change = selected && tendered ? toMinor(tendered) - selected.payable_amount_minor : 0;
+  // The rule lives in `@shared/money` so it is unit-tested rather than trusted:
+  // capturing the tendered figure instead of the amount kept was a real defect.
+  const dueMinor = selected?.payable_amount_minor ?? 0;
+  const { capturedMinor, changeMinor: change, shortByMinor: shortBy } = splitCashTender(tendered ? toMinor(tendered) : 0, dueMinor);
 
   return (
     <div>
@@ -120,9 +123,9 @@ export default function TakePayment(): JSX.Element {
                 <span className="mid-amount">{pkr(change)}</span>
               </div>
             )}
-            {change < 0 && <Notice tone="warn">Short by {pkr(-change)} — this will be a partial payment if the product allows one.</Notice>}
+            {shortBy > 0 && <Notice tone="warn">Short by {pkr(shortBy)} — this will be a partial payment if the product allows one.</Notice>}
             <button className="btn w-full" onClick={take} disabled={busy || !tendered}>
-              {busy ? "Accepting…" : `Accept ${pkr(toMinor(tendered || "0"))} cash`}
+              {busy ? "Accepting…" : `Accept ${pkr(capturedMinor)} cash`}
             </button>
           </div>
         </div>

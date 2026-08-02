@@ -8,3 +8,10 @@ coverage/
 !.env.example
 .DS_Store
 *.tsbuildinfo
+
+# Recording intermediates. Playwright's WebM originals are the lossless source and
+# are kept locally for re-encoding, but they are large and regenerable from
+# scripts/record-demo.ts — which is the authoritative version of the demonstration.
+docs/demo/recordings/*.webm
+docs/demo/recordings/raw/
+capture-problems.txt
