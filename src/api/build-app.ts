@@ -15,6 +15,16 @@ import {
   type LineItemInput,
 } from "../modules/obligation/index.js";
 import { mintPsid, PsidNotMintableError } from "../modules/obligation/mint-psid.js";
+import {
+  listBreaks,
+  proposeBreakResolution,
+  approveBreakResolution,
+  rejectBreakResolution,
+  BreakNotOpenError,
+  BreakNotPendingError,
+  SelfApprovalNotAllowedError as BreakSelfApprovalError,
+  type ResolutionType,
+} from "../modules/recon/resolve.js";
 import { mapAssessmentToApi, findCurrentAssessmentIdByPsid } from "../modules/obligation/api-mapper.js";
 import { resolvePayer } from "./payer-lookup.js";
 import { requireInstitutionId } from "./auth-stub.js";
@@ -1651,6 +1661,96 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     }, body.actor_id, clock);
     return reply.code(200).send({ status: "AMENDED" });
   });
+
+  /**
+   * Break resolution under maker-checker (§3.2's analyst/approver segregation).
+   *
+   * These are role-gated for real: an analyst may propose but not approve, and an
+   * approver may approve but not propose. That's the whole point of the control,
+   * and it's the one place in this build where the two halves of a maker-checker
+   * pair are enforced by *different* required roles rather than only by
+   * "different user id".
+   */
+  app.get("/internal/breaks", async (request, reply) => {
+    const { business_date, status } = request.query as { business_date?: string; status?: string };
+    const rows = await listBreaks(db, {
+      ...(business_date ? { businessDate: business_date } : {}),
+      ...(status ? { status } : {}),
+    });
+    return reply.code(200).send(
+      rows.map((r) => ({
+        id: r.id,
+        break_code: r.break_code,
+        severity: r.severity,
+        amount_minor: toWireMinor(r.amount_minor),
+        business_date: r.business_date,
+        status: r.status,
+        resolution_type: r.resolution_type,
+        narrative_raw: r.narrative_raw,
+        agency_code: r.agency_code,
+        payment_reference: r.payment_reference,
+        maker_user_name: r.maker_user_name,
+        proposed_resolution: r.proposed_resolution,
+        proposed_narrative: r.proposed_narrative,
+      })),
+    );
+  });
+
+  app.post(
+    "/internal/breaks/:breakId/propose",
+    { preHandler: requireRole(db, ["OPS_RECON_ANALYST"]) },
+    async (request, reply) => {
+      const { breakId } = request.params as { breakId: string };
+      const { resolution_type, narrative } = request.body as { resolution_type: ResolutionType; narrative: string };
+      const makerUserId = request.headers["x-user-id"] as string;
+      try {
+        const result = await proposeBreakResolution(db, { breakId, resolutionType: resolution_type, narrative, makerUserId }, clock);
+        return reply.code(200).send({ approval_id: result.approvalId, status: "PENDING_APPROVAL" });
+      } catch (err) {
+        if (err instanceof BreakNotOpenError) {
+          return reply.code(err.httpStatus).send({ type: "https://errors.nexuscollect.example/BREAK_NOT_OPEN", title: "Break not open", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+        }
+        throw err;
+      }
+    },
+  );
+
+  app.post(
+    "/internal/breaks/:breakId/approve",
+    { preHandler: requireRole(db, ["OPS_RECON_APPROVER"]) },
+    async (request, reply) => {
+      const { breakId } = request.params as { breakId: string };
+      const checkerUserId = request.headers["x-user-id"] as string;
+      try {
+        await approveBreakResolution(db, breakId, checkerUserId, clock);
+        return reply.code(200).send({ status: "RESOLVED" });
+      } catch (err) {
+        if (err instanceof BreakNotPendingError || err instanceof BreakSelfApprovalError) {
+          return reply.code(err.httpStatus).send({ type: `https://errors.nexuscollect.example/${err.code}`, title: "Cannot approve", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+        }
+        throw err;
+      }
+    },
+  );
+
+  app.post(
+    "/internal/breaks/:breakId/reject",
+    { preHandler: requireRole(db, ["OPS_RECON_APPROVER"]) },
+    async (request, reply) => {
+      const { breakId } = request.params as { breakId: string };
+      const { comment } = request.body as { comment?: string };
+      const checkerUserId = request.headers["x-user-id"] as string;
+      try {
+        await rejectBreakResolution(db, breakId, checkerUserId, comment ?? "", clock);
+        return reply.code(200).send({ status: "OPEN" });
+      } catch (err) {
+        if (err instanceof BreakNotPendingError || err instanceof BreakSelfApprovalError) {
+          return reply.code(err.httpStatus).send({ type: `https://errors.nexuscollect.example/${err.code}`, title: "Cannot reject", status: err.httpStatus, code: err.code, detail: err.message, retryable: false });
+        }
+        throw err;
+      }
+    },
+  );
 
   app.get("/internal/roles", async (_request, reply) => {
     const rows = await db.selectFrom("role").selectAll().orderBy("code").execute();
