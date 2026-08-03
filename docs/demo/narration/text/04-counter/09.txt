@@ -1,0 +1,1 @@
+Only a teller can accept money. A branch supervisor cannot. A supervisor reverses a teller's mistakes, and somebody who can both take money and reverse it is not a control.

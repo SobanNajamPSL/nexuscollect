@@ -1,0 +1,1 @@
+Cash across the counter. The amount due is computed live, so a surcharge that has accrued since the bill was printed is already in it. The teller reads it back before accepting the money.

@@ -1,0 +1,1 @@
+Every entry balances, every cached balance rebuilds identically. The third check is the quiet one: throw away every cached balance column, recompute from the allocations, and get the same numbers to the paisa. Cached figures are only ever a cache.

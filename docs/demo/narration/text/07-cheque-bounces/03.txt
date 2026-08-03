@@ -1,0 +1,1 @@
+And the receipt the payer is holding. A receipt that verified as valid an hour ago now verifies as VOIDED, with the reason. That is why status is the headline of the public verification screen and not a footnote.

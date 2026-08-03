@@ -1,0 +1,1 @@
+Nothing about cash is special-cased. Same apply pipeline as a bank app: allocated across the bill's line items by the product's waterfall, posted to the ledger, receipted with a gapless per-agency number. The channel is CASH and the rail is CASH — and that is the only difference.

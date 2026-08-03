@@ -15,7 +15,24 @@ docs/demo/narration/audio/<beat-id>.wav        one take for the whole beat
 docs/demo/narration/audio/<beat-id>/01.wav    or one file per line, if you prefer
 ```
 
-WAV or AIFF, mono is fine, 44.1 kHz or better. Then:
+WAV or AIFF, mono is fine, 44.1 kHz or better.
+
+### Using a text-to-speech tool
+
+`text/` holds the same words with no Markdown, because a synthesiser would otherwise
+say the asterisks:
+
+```
+text/<beat>/01.txt    one line per file — feed these in, save the output as
+                      audio/<beat>/01.wav and the names already line up
+text/<beat>.txt       the whole beat in one file, passages separated by blank lines
+```
+
+Per-line files are the better path for TTS: `measure-narration` prefers them and skips
+silence detection entirely, so there is nothing to tune and no chance of a boundary
+landing in the wrong place.
+
+Then:
 
 ```bash
 npx tsx scripts/measure-narration.ts

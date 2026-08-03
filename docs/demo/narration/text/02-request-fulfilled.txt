@@ -1,0 +1,5 @@
+The payer pays it — through their own bank. Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works.
+
+Paid, and receipted. PKR 16,500.00, against the bill the request named.
+
+FULFILLED — and nobody pressed anything. The platform recognised its own money and closed the request. That distinction is the whole reason fulfilment is a separate step from acceptance: an agency needs to know which of its requests were *paid*, not merely which were agreed to.

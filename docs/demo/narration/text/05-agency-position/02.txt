@@ -1,0 +1,1 @@
+Swept is still zero, and that is correct. The money is confirmed against the bills but has not left the collection account. Swept lags on purpose: it is the number a finance officer can trust precisely because it is the most conservative of the three.

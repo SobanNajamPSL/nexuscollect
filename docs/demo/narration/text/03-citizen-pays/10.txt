@@ -1,0 +1,1 @@
+Change one digit and it fails. Somebody holding the receipt and the public key, with no access to the platform at all, can tell a genuine receipt from an altered one.

@@ -1,0 +1,1 @@
+Lodging a cheque. A physical instrument accepted across the counter. This did not exist until the field portal was built: the platform could unwind a bounced cheque but had no way to accept one, because every seeded cheque came from the data loader.

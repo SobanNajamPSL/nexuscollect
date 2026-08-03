@@ -1,0 +1,1 @@
+Caught, and named. Not a general warning that something somewhere is wrong. The specific journal entry that was altered, by number — because each entry's hash covers the one before it, so a changed row can only be consistent with itself.

@@ -1,0 +1,1 @@
+The payer pays it — through their own bank. Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works.

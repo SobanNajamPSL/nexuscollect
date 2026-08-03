@@ -1,0 +1,1 @@
+Broken down by revenue head. Government reporting is organised by head, not by transaction. Surcharge is collected against its own head rather than folded into the tax it accrued on, which is what makes it separately auditable.

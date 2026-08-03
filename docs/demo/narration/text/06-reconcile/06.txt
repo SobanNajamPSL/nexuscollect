@@ -1,0 +1,1 @@
+And cannot approve it. It moves to awaiting approval. The analyst has no button to finish the job.

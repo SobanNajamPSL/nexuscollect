@@ -929,7 +929,16 @@ async function writeNarrationManifest(): Promise<void> {
   index += `where each line ends, so they matter more than they look like they should.\n\n`;
   index += "```\ndocs/demo/narration/audio/<beat-id>.wav        one take for the whole beat\n";
   index += "docs/demo/narration/audio/<beat-id>/01.wav    or one file per line, if you prefer\n```\n\n";
-  index += `WAV or AIFF, mono is fine, 44.1 kHz or better. Then:\n\n`;
+  index += `WAV or AIFF, mono is fine, 44.1 kHz or better.\n\n`;
+  index += `### Using a text-to-speech tool\n\n`;
+  index += `\`text/\` holds the same words with no Markdown, because a synthesiser would otherwise\n`;
+  index += `say the asterisks:\n\n`;
+  index += "```\ntext/<beat>/01.txt    one line per file — feed these in, save the output as\n";
+  index += "                      audio/<beat>/01.wav and the names already line up\n";
+  index += "text/<beat>.txt       the whole beat in one file, passages separated by blank lines\n```\n\n";
+  index += `Per-line files are the better path for TTS: \`measure-narration\` prefers them and skips\n`;
+  index += `silence detection entirely, so there is nothing to tune and no chance of a boundary\n`;
+  index += `landing in the wrong place.\n\nThen:\n\n`;
   index += "```bash\nnpx tsx scripts/measure-narration.ts\n```\n\n";
   index += `which splits any whole-beat takes, checks it found the right number of lines, and\n`;
   index += `writes \`durations.json\`. After that, re-record the film and the beats as usual and\n`;
@@ -955,7 +964,29 @@ async function writeNarrationManifest(): Promise<void> {
   }
 
   await writeFile(join(NARRATION_DIR, "README.md"), index, "utf8");
+
+  // Plain text, for feeding a text-to-speech tool.
+  //
+  // The Markdown sheets are for a person to read from; a synthesiser would say the
+  // asterisks. These carry the same words with no markup, and are named so the
+  // output can be saved straight back as `audio/<beat>/<NN>.wav` — which is the
+  // per-line form `measure-narration` prefers, because it needs no silence
+  // detection at all.
+  const TEXT_DIR = join(NARRATION_DIR, "text");
+  for (const [beat, lines] of byBeat) {
+    await mkdir(join(TEXT_DIR, beat), { recursive: true });
+    for (const line of lines) {
+      const spoken = line.body ? `${line.title}. ${line.body}` : `${line.title}.`;
+      await writeFile(join(TEXT_DIR, beat, `${String(line.index).padStart(2, "0")}.txt`), `${spoken}\n`, "utf8");
+    }
+    // And the whole beat in one file, for a tool that would rather take one pass.
+    // Blank lines between passages, which most synthesisers render as a pause.
+    const whole = lines.map((l) => (l.body ? `${l.title}. ${l.body}` : `${l.title}.`)).join("\n\n");
+    await writeFile(join(TEXT_DIR, `${beat}.txt`), `${whole}\n`, "utf8");
+  }
+
   process.stdout.write(`\nNarration manifest: ${narration.length} lines across ${byBeat.size} beats → docs/demo/narration/\n`);
+  process.stdout.write(`Plain text for TTS: docs/demo/narration/text/\n`);
 }
 
 async function main(): Promise<void> {

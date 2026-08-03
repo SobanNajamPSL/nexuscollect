@@ -1,0 +1,1 @@
+Closing the till. The teller counts the drawer. Any difference from what the platform expected is posted to the ledger as a real over/short entry, not absorbed into a rounding line — and the trial balance still ties afterwards.

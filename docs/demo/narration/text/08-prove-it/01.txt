@@ -1,0 +1,1 @@
+Five control assertions, re-performed on demand. Not a status page. Every one of these is recomputed against the live ledger the moment you ask, because a stored 'all green' proves nothing.

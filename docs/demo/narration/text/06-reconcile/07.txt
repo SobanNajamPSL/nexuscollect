@@ -1,0 +1,1 @@
+A different person, in a different role. Maker-checker here is enforced twice: the same user id is refused, and proposing and approving require different roles. Two accounts belonging to one person defeats an id check — it does not defeat this.

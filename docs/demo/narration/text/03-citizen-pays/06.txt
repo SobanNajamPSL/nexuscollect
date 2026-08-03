@@ -1,0 +1,1 @@
+The receipt is rendered from the signed payload. Not from a convenient query — from the bytes that were cryptographically signed. A receipt that displays cannot disagree with a receipt that verifies.

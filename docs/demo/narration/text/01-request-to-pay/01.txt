@@ -1,0 +1,1 @@
+Before waiting, ask. Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.

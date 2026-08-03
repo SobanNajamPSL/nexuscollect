@@ -1,0 +1,1 @@
+A bill already paid comes back with its receipt. Not an error, and not an empty result. Showing the payer proof they already paid is what prevents the commonest duplicate payment there is.

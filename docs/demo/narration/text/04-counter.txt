@@ -1,0 +1,17 @@
+The same day, at a counter. Oversized targets, high contrast, one task per screen — because this is used standing up, in poor light, with somebody waiting.
+
+Cash across the counter. The amount due is computed live, so a surcharge that has accrued since the bill was printed is already in it. The teller reads it back before accepting the money.
+
+Tendered, and the change to return. The platform works out the change so the teller does not have to.
+
+Nothing about cash is special-cased. Same apply pipeline as a bank app: allocated across the bill's line items by the product's waterfall, posted to the ledger, receipted with a gapless per-agency number. The channel is CASH and the rail is CASH — and that is the only difference.
+
+Lodging a cheque. A physical instrument accepted across the counter. This did not exist until the field portal was built: the platform could unwind a bounced cheque but had no way to accept one, because every seeded cheque came from the data loader.
+
+Cheque 004901, for PKR 247,968.00. Tendered against one overdue sales-tax bill. Remember this cheque — the bank has not paid it yet.
+
+The credit is provisional, and stays provisional. The bank can still take this money back, so it can never be swept to treasury, and the receipt says so on its face rather than implying the obligation is discharged.
+
+Closing the till. The teller counts the drawer. Any difference from what the platform expected is posted to the ledger as a real over/short entry, not absorbed into a rounding line — and the trial balance still ties afterwards.
+
+Only a teller can accept money. A branch supervisor cannot. A supervisor reverses a teller's mistakes, and somebody who can both take money and reverse it is not a control.

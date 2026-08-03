@@ -1,0 +1,1 @@
+Verified in the browser, with nothing sent anywhere. An Ed25519 check run locally against the public key on the receipt. No network, no database — which is what offline verification has to mean to be worth claiming.

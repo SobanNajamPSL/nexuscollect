@@ -1,0 +1,1 @@
+Fourteen requests, in eight different states. Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.

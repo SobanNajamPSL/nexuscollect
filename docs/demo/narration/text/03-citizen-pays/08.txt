@@ -1,0 +1,1 @@
+In Urdu, right-to-left, with the amount in words. The words are what make a printed receipt hard to alter. Revenue head names stay in English deliberately — they are the agency's own published descriptions, and inventing translations would be fabricating reference data.

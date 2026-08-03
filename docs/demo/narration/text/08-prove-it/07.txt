@@ -1,0 +1,1 @@
+And the scroll goes with it. One line per allocation, with a control total. It is never emitted unless that total ties exactly to the ledger — because treasury is being asked to acknowledge receipt of exactly what the platform says it sent.

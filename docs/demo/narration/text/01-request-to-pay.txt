@@ -1,0 +1,9 @@
+Before waiting, ask. Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.
+
+Fourteen requests, in eight different states. Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.
+
+Request R260005, for PKR 16,500.00. Delivered to the payer's phone, not yet opened.
+
+The payer opens it. Presented — it is now in front of them.
+
+And accepts — which is not the same as paying. Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled.
