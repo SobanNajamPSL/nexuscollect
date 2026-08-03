@@ -1,26 +1,26 @@
 # 00-cold-open — Cold open — an agency's own position
 
-4 lines, 127 words, roughly 0m 46s at a measured pace.
+4 lines, 277 words, roughly 1m 41s at a measured pace.
 
-Read the lines in order. **Pause for one to two seconds between them** — that is how
-the split finds the boundaries. The bold part is the on-screen heading; you can read
-it as the opening phrase of the sentence or skip it, whichever sounds natural.
+Read the passages in order. **Pause for one to two seconds between them** — that is
+how the split finds the boundaries. Nothing appears on screen, so the narration
+carries the whole explanation; say it as you would to somebody sitting beside you.
 
 ---
 
 ### 01
 
-**NexusCollect — collecting money owed to government.** Start where the audience cares: what one agency can say about its own money, on one business date.
+This is NexusCollect — a platform for collecting money that citizens and businesses owe to government. We'll start where you would start: with what a single agency can say about its own money, on a single day. This is the Excise and Taxation department in Punjab, on the thirtieth of July.
 
 ### 02
 
-**Three numbers, never one.** Confirmed is what has been applied to this agency's bills. Settled is which bills that discharged. Swept is cash that has actually reached the treasury account. A collection system that reports one figure called 'collected' is misstating its own position.
+Across the top are three figures, and the first thing to notice is what is missing: there is no single number called 'collected'. That is deliberate, and it is the most important advice we would give you. Three figures, because three different things are true at once. Confirmed is money we have applied to this agency's bills. Settled is the bills that money fully paid off. And swept is cash that has physically reached the treasury account. Most systems blur the three into one — and then an agency reports money as collected before it has actually arrived.
 
 ### 03
 
-**Broken down by revenue head.** Government reporting is organised by head, not by transaction. Surcharge is collected against its own head rather than folded into the tax it accrued on, which is what makes it separately auditable.
+Below that, the same total broken down by revenue head — the budget line each rupee is credited to. Government accounts are organised this way, so this is the view your finance officers actually work from. Notice that surcharge has a line of its own. We never fold it into the tax it accrued on, which means you can always see how much of a day's collection is penalty rather than principal.
 
 ### 04
 
-**And what is still owed.** Thirty-one bills raised, PKR 220,900.00 outstanding. Now rewind and watch one day's money produce those numbers.
+And last, what is still owed: thirty-one bills raised, two hundred and twenty thousand nine hundred rupees outstanding. Every number on this screen is calculated from the ledger — none of it is typed in by hand. So let us go back to the beginning of that day, and watch the money that produced these figures.
 

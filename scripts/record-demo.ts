@@ -117,8 +117,8 @@ async function pause(page: Page, ms: number): Promise<void> {
 interface NarrationLine {
   beat: string;
   index: number;
-  title: string;
-  body: string;
+  /** What the narrator says over this stretch of picture. */
+  script: string;
   words: number;
   heldMs: number;
   startedAtMs?: number;
@@ -147,72 +147,40 @@ function narrationKey(beat: string, index: number): string {
 const NARRATION_LEAD_MS = 350;
 const NARRATION_TAIL_MS = 650;
 
-// --- The caption overlay -----------------------------------------------------
+// --- Narration ---------------------------------------------------------------
 
 /**
- * Injected as an init script so it survives navigation. Everything about it says
- * "this is narration, not part of the product": it sits at the bottom, over a
- * gradient, in a different typeface from every portal.
+ * A beat of narration.
+ *
+ * Nothing is drawn on screen. The film is narrated rather than captioned — an
+ * earlier cut burned the script in as a lower-third, and it did two jobs badly:
+ * text written to be read is not text written to be spoken, and a gradient across
+ * the bottom of every frame covered the last rows of the very tables the film is
+ * arguing about.
+ *
+ * So this call now does one thing: it records that a line of script belongs here,
+ * and holds the picture for exactly as long as that line takes to say. The viewer
+ * sees only the product.
  */
-const OVERLAY = `
-window.__caption = (title, body) => {
-  let el = document.getElementById("__demo_caption");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "__demo_caption";
-    el.style.cssText = [
-      "position:fixed", "left:0", "right:0", "bottom:0", "z-index:2147483647",
-      "padding:28px 48px 34px", "pointer-events:none",
-      "background:linear-gradient(to top, rgba(8,10,14,0.94) 0%, rgba(8,10,14,0.82) 55%, rgba(8,10,14,0) 100%)",
-      "font-family:'Inter','Helvetica Neue',system-ui,sans-serif", "color:#fff",
-      "transition:opacity 320ms ease", "opacity:0",
-    ].join(";");
-    el.innerHTML =
-      '<div id="__demo_caption_title" style="font-size:27px;font-weight:650;letter-spacing:-0.011em;line-height:1.24"></div>' +
-      '<div id="__demo_caption_body" style="font-size:18px;line-height:1.5;color:rgba(255,255,255,0.80);margin-top:8px;max-width:1180px"></div>';
-    document.body.appendChild(el);
-  }
-  document.getElementById("__demo_caption_title").textContent = title || "";
-  document.getElementById("__demo_caption_body").textContent = body || "";
-  el.style.opacity = (title || body) ? "1" : "0";
-};
-window.__captionClear = () => window.__caption("", "");
-`;
-
-/**
- * `window` is not in scope for this script's own types — it runs under the Node
- * tsconfig — so the browser-side call is reached through `globalThis`, which is.
- */
-interface CaptionWindow {
-  __caption: (title: string, body: string) => void;
-  __captionClear: () => void;
-}
-
-async function caption(page: Page, title: string, body = ""): Promise<void> {
+async function narrate(page: Page, script: string): Promise<void> {
   const index = ++beatLineCount;
   const key = narrationKey(currentBeat, index);
 
-  // Narration length wins when it exists; the word-count estimate is the fallback
-  // for a line nobody has recorded yet, so a partly-narrated film still works.
+  // The recorded audio decides how long we dwell. Without it there is nothing to
+  // pace against, so fall back to a reading-speed estimate of the script.
   const spokenMs = audioDurations[key];
-  const heldMs = spokenMs !== undefined ? NARRATION_LEAD_MS + spokenMs + NARRATION_TAIL_MS : readingTime(`${title} ${body}`);
+  const heldMs = spokenMs !== undefined ? NARRATION_LEAD_MS + spokenMs + NARRATION_TAIL_MS : readingTime(script);
 
   narration.push({
     beat: currentBeat,
     index,
-    title,
-    body,
-    words: `${title} ${body}`.trim().split(/\s+/).filter(Boolean).length,
+    script,
+    words: script.trim().split(/\s+/).filter(Boolean).length,
     heldMs,
     ...(recordingStartedAt !== null ? { startedAtMs: Date.now() - recordingStartedAt } : {}),
   });
 
-  await page.evaluate(([t, b]) => (globalThis as unknown as CaptionWindow).__caption(t!, b!), [title, body]);
   await pause(page, heldMs);
-}
-
-async function clearCaption(page: Page): Promise<void> {
-  await page.evaluate(() => (globalThis as unknown as CaptionWindow).__captionClear());
 }
 
 // --- Harness helpers ---------------------------------------------------------
@@ -331,32 +299,44 @@ const coldOpen: Beat = {
   run: async (page) => {
     await go(page, AGENCY);
     await becomePersona(page, AGENCY_ADMIN);
-    await caption(
+    await narrate(
       page,
-      "NexusCollect — collecting money owed to government",
-      "Start where the audience cares: what one agency can say about its own money, on one business date.",
+      "This is NexusCollect — a platform for collecting money that citizens and businesses owe to government. " +
+        "We'll start where you would start: with what a single agency can say about its own money, on a single day. " +
+        "This is the Excise and Taxation department in Punjab, on the thirtieth of July.",
     );
-    await caption(
+    await narrate(
       page,
-      "Three numbers, never one",
-      "Confirmed is what has been applied to this agency's bills. Settled is which bills that discharged. Swept is cash that has actually reached the treasury account. A collection system that reports one figure called 'collected' is misstating its own position.",
+      "Across the top are three figures, and the first thing to notice is what is missing: there is no single number called 'collected'. " +
+        "That is deliberate, and it is the most important advice we would give you. " +
+        "Three figures, because three different things are true at once. " +
+        "Confirmed is money we have applied to this agency's bills. " +
+        "Settled is the bills that money fully paid off. " +
+        "And swept is cash that has physically reached the treasury account. " +
+        "Most systems blur the three into one — and then an agency reports money as collected before it has actually arrived.",
     );
     await reveal(page, "HEAD-WISE COLLECTION");
-    await caption(
+    await narrate(
       page,
-      "Broken down by revenue head",
-      "Government reporting is organised by head, not by transaction. Surcharge is collected against its own head rather than folded into the tax it accrued on, which is what makes it separately auditable.",
+      "Below that, the same total broken down by revenue head — the budget line each rupee is credited to. " +
+        "Government accounts are organised this way, so this is the view your finance officers actually work from. " +
+        "Notice that surcharge has a line of its own. " +
+        "We never fold it into the tax it accrued on, which means you can always see how much of a day's collection is penalty rather than principal.",
     );
     await reveal(page, "BILLS ISSUED");
-    await caption(page, "And what is still owed", "Thirty-one bills raised, PKR 220,900.00 outstanding. Now rewind and watch one day's money produce those numbers.");
-    await clearCaption(page);
+    await narrate(
+      page,
+      "And last, what is still owed: thirty-one bills raised, two hundred and twenty thousand nine hundred rupees outstanding. " +
+        "Every number on this screen is calculated from the ledger — none of it is typed in by hand. " +
+        "So let us go back to the beginning of that day, and watch the money that produced these figures.",
+    );
     await pause(page, LINGER);
   },
 };
 
 /**
  * The bill the seeded Request to Pay R260005 is raised against — a real ETPB motor
- * vehicle bill, still unpaid. Held as a constant so the beat and its caption cannot
+ * vehicle bill, still unpaid. Held as constants so the beat and its narration cannot
  * drift apart.
  */
 const RTP_REFERENCE = "R260005";
@@ -368,36 +348,23 @@ const requestToPay: Beat = {
   run: async (page) => {
     await go(page, `${AGENCY}/request-to-pay`);
     await becomePersona(page, AGENCY_ADMIN);
-    await caption(
-      page,
-      "Before waiting, ask",
-      "Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.",
-    );
-    await caption(
-      page,
-      "Fourteen requests, in eight different states",
-      "Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.",
-    );
+    await narrate(page, "Before waiting, ask. Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded.");
+    await narrate(page, "Fourteen requests, in eight different states. Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how.");
 
     const row = page.locator("tr", { hasText: RTP_REFERENCE }).first();
     await row.scrollIntoViewIfNeeded();
     await pause(page, 900);
-    await caption(page, `Request ${RTP_REFERENCE}, for PKR 16,500.00`, "Delivered to the payer's phone, not yet opened.");
+    await narrate(page, `Request ${RTP_REFERENCE}, for PKR 16,500.00. Delivered to the payer's phone, not yet opened.`);
 
     await row.getByRole("button", { name: "Mark presented" }).click();
     await page.getByText("PRESENTED").first().waitFor({ timeout: 15_000 });
     await pause(page, BEAT);
-    await caption(page, "The payer opens it", "Presented — it is now in front of them.");
+    await narrate(page, "The payer opens it. Presented — it is now in front of them.");
 
     await page.locator("tr", { hasText: RTP_REFERENCE }).first().getByRole("button", { name: "Payer accepts" }).click();
     await page.getByText("ACCEPTED").first().waitFor({ timeout: 15_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "And accepts — which is not the same as paying",
-      "Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled.",
-    );
-    await clearCaption(page);
+    await narrate(page, "And accepts — which is not the same as paying. Accepting is the payer agreeing. No money has moved. The bill is still outstanding, and the request will sit here until it is actually settled.");
     await pause(page, LINGER);
   },
 };
@@ -410,11 +377,7 @@ const requestFulfilled: Beat = {
   },
   run: async (page) => {
     await go(page, CITIZEN);
-    await caption(
-      page,
-      "The payer pays it — through their own bank",
-      "Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works.",
-    );
+    await narrate(page, "The payer pays it — through their own bank. Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works.");
 
     await page.getByLabel("What do you have?").selectOption("PSID");
     await page.getByLabel("Bill number (PSID)", { exact: true }).fill(RTP_PSID);
@@ -424,18 +387,13 @@ const requestFulfilled: Beat = {
     await page.getByRole("button", { name: /^Pay all/ }).click();
     await page.getByText("OFFICIAL RECEIPT").first().waitFor({ timeout: 25_000 });
     await pause(page, BEAT);
-    await caption(page, "Paid, and receipted", "PKR 16,500.00, against the bill the request named.");
+    await narrate(page, "Paid, and receipted. PKR 16,500.00, against the bill the request named.");
 
     await go(page, `${AGENCY}/request-to-pay`);
     await becomePersona(page, AGENCY_ADMIN);
     await page.locator("tr", { hasText: RTP_REFERENCE }).first().scrollIntoViewIfNeeded();
     await pause(page, 900);
-    await caption(
-      page,
-      "FULFILLED — and nobody pressed anything",
-      "The platform recognised its own money and closed the request. That distinction is the whole reason fulfilment is a separate step from acceptance: an agency needs to know which of its requests were *paid*, not merely which were agreed to.",
-    );
-    await clearCaption(page);
+    await narrate(page, "FULFILLED — and nobody pressed anything. The platform recognised its own money and closed the request. That distinction is the whole reason fulfilment is a separate step from acceptance: an agency needs to know which of its requests were *paid*, not merely which were agreed to.");
     await pause(page, LINGER);
   },
 };
@@ -445,61 +403,32 @@ const citizenPays: Beat = {
   title: "A citizen pays bills across two agencies",
   run: async (page) => {
     await go(page, CITIZEN);
-    await caption(page, "The citizen portal", "Public. No account, no password, no sign-in. A bill is found with a reference the payer already has in their hand.");
+    await narrate(page, "The citizen portal. Public. No account, no password, no sign-in. A bill is found with a reference the payer already has in their hand.");
 
     await page.getByRole("button", { name: "Find my bills" }).click();
     await page.getByText("outstanding").first().waitFor({ timeout: 15_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "One vehicle registration, two agencies, three bills",
-      "LEA-17-1000 returns bills from the Excise department and from the Safe Cities Authority, in one list, for PKR 16,750.00. Without a shared platform this payer visits two organisations.",
-    );
+    await narrate(page, "One vehicle registration, two agencies, three bills. LEA-17-1000 returns bills from the Excise department and from the Safe Cities Authority, in one list, for PKR 16,750.00. Without a shared platform this payer visits two organisations.");
     await reveal(page, "early-payment discount");
-    await caption(
-      page,
-      "The discount is live, and already applied",
-      "PKR 1,250.00 off the moving-violation challan while it lasts. The PKR 3,750.00 shown is what will be charged — and what the ledger will record.",
-    );
+    await narrate(page, "The discount is live, and already applied. PKR 1,250.00 off the moving-violation challan while it lasts. The PKR 3,750.00 shown is what will be charged — and what the ledger will record.");
     await reveal(page, "Already paid");
-    await caption(
-      page,
-      "A bill already paid comes back with its receipt",
-      "Not an error, and not an empty result. Showing the payer proof they already paid is what prevents the commonest duplicate payment there is.",
-    );
+    await narrate(page, "A bill already paid comes back with its receipt. Not an error, and not an empty result. Showing the payer proof they already paid is what prevents the commonest duplicate payment there is.");
 
-    await clearCaption(page);
     await page.getByRole("button", { name: /^Pay all/ }).click();
     await page.getByText("different agencies").first().waitFor({ timeout: 25_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "One tap — but two payments, and two receipts",
-      "A payment belongs to exactly one agency, because the sweep moves it into one treasury account and the scroll is emitted per agency. So the split is real. That is also the answer to 'how do I know my money is mine': it was never mixed.",
-    );
+    await narrate(page, "One tap — but two payments, and two receipts. A payment belongs to exactly one agency, because the sweep moves it into one treasury account and the scroll is emitted per agency. So the split is real. That is also the answer to 'how do I know my money is mine': it was never mixed.");
 
     await page.getByText("Punjab Safe Cities Authority").first().click();
     await page.getByText("OFFICIAL RECEIPT").first().waitFor({ timeout: 15_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "The receipt is rendered from the signed payload",
-      "Not from a convenient query — from the bytes that were cryptographically signed. A receipt that displays cannot disagree with a receipt that verifies.",
-    );
+    await narrate(page, "The receipt is rendered from the signed payload. Not from a convenient query — from the bytes that were cryptographically signed. A receipt that displays cannot disagree with a receipt that verifies.");
     await reveal(page, "In words");
-    await caption(
-      page,
-      "Head-wise, and it adds up",
-      "PKR 6,750.00 across three revenue heads and two bills. The discounted challan contributes 3,750.00, not its 5,000.00 principal. A receipt whose parts do not sum to its total is the first thing an auditor rejects.",
-    );
+    await narrate(page, "Head-wise, and it adds up. PKR 6,750.00 across three revenue heads and two bills. The discounted challan contributes 3,750.00, not its 5,000.00 principal. A receipt whose parts do not sum to its total is the first thing an auditor rejects.");
 
     await page.getByRole("button", { name: "اردو" }).click();
     await pause(page, BEAT);
-    await caption(
-      page,
-      "In Urdu, right-to-left, with the amount in words",
-      "The words are what make a printed receipt hard to alter. Revenue head names stay in English deliberately — they are the agency's own published descriptions, and inventing translations would be fabricating reference data.",
-    );
+    await narrate(page, "In Urdu, right-to-left, with the amount in words. The words are what make a printed receipt hard to alter. Revenue head names stay in English deliberately — they are the agency's own published descriptions, and inventing translations would be fabricating reference data.");
 
     await page.getByRole("button", { name: "English" }).click();
     await pause(page, 700);
@@ -510,18 +439,13 @@ const citizenPays: Beat = {
     // land.
     await reveal(page, "Signature valid");
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Verified in the browser, with nothing sent anywhere",
-      "An Ed25519 check run locally against the public key on the receipt. No network, no database — which is what offline verification has to mean to be worth claiming.",
-    );
+    await narrate(page, "Verified in the browser, with nothing sent anywhere. An Ed25519 check run locally against the public key on the receipt. No network, no database — which is what offline verification has to mean to be worth claiming.");
 
     await page.getByRole("button", { name: "Alter one digit" }).click();
     await page.getByText("Signature invalid").first().waitFor({ timeout: 10_000 });
     await reveal(page, "Signature invalid");
     await pause(page, BEAT);
-    await caption(page, "Change one digit and it fails", "Somebody holding the receipt and the public key, with no access to the platform at all, can tell a genuine receipt from an altered one.");
-    await clearCaption(page);
+    await narrate(page, "Change one digit and it fails. Somebody holding the receipt and the public key, with no access to the platform at all, can tell a genuine receipt from an altered one.");
     await pause(page, LINGER);
   },
 };
@@ -532,42 +456,26 @@ const counter: Beat = {
   run: async (page) => {
     await go(page, FIELD);
     await becomePersona(page, TELLER);
-    await caption(
-      page,
-      "The same day, at a counter",
-      "Oversized targets, high contrast, one task per screen — because this is used standing up, in poor light, with somebody waiting.",
-    );
+    await narrate(page, "The same day, at a counter. Oversized targets, high contrast, one task per screen — because this is used standing up, in poor light, with somebody waiting.");
 
     await page.getByLabel("Bill reference (PSID)").fill(CASH_PSID);
     await page.getByRole("button", { name: "Look up" }).click();
     await page.getByText("Amount due").first().waitFor({ timeout: 15_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Cash across the counter",
-      "The amount due is computed live, so a surcharge that has accrued since the bill was printed is already in it. The teller reads it back before accepting the money.",
-    );
+    await narrate(page, "Cash across the counter. The amount due is computed live, so a surcharge that has accrued since the bill was printed is already in it. The teller reads it back before accepting the money.");
 
     await page.getByLabel("Cash tendered (PKR)").fill(CASH_TENDERED);
     await pause(page, 900);
-    await caption(page, "Tendered, and the change to return", "The platform works out the change so the teller does not have to.");
+    await narrate(page, "Tendered, and the change to return. The platform works out the change so the teller does not have to.");
     await page.getByRole("button", { name: /^Accept / }).click();
     // The success notice, not the section heading — waiting on text that is always
     // present would mask a failure rather than catch it.
     await page.getByText("Payment accepted").first().waitFor({ timeout: 20_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Nothing about cash is special-cased",
-      "Same apply pipeline as a bank app: allocated across the bill's line items by the product's waterfall, posted to the ledger, receipted with a gapless per-agency number. The channel is CASH and the rail is CASH — and that is the only difference.",
-    );
+    await narrate(page, "Nothing about cash is special-cased. Same apply pipeline as a bank app: allocated across the bill's line items by the product's waterfall, posted to the ledger, receipted with a gapless per-agency number. The channel is CASH and the rail is CASH — and that is the only difference.");
 
     await go(page, `${FIELD}/instrument`);
-    await caption(
-      page,
-      "Lodging a cheque",
-      "A physical instrument accepted across the counter. This did not exist until the field portal was built: the platform could unwind a bounced cheque but had no way to accept one, because every seeded cheque came from the data loader.",
-    );
+    await narrate(page, "Lodging a cheque. A physical instrument accepted across the counter. This did not exist until the field portal was built: the platform could unwind a bounced cheque but had no way to accept one, because every seeded cheque came from the data loader.");
 
     await page.getByLabel("Bill reference (PSID)").fill(DEMO_CHEQUE_PSID);
     await page.getByLabel("Instrument number").fill(DEMO_CHEQUE);
@@ -575,25 +483,16 @@ const counter: Beat = {
     await page.getByLabel("Drawer name").fill("Zenith Clearing Agents (Pvt) Ltd");
     await page.getByLabel("Drawee bank").fill("Habib Bank Limited");
     await pause(page, BEAT);
-    await caption(page, "Cheque 004901, for PKR 247,968.00", "Tendered against one overdue sales-tax bill. Remember this cheque — the bank has not paid it yet.");
+    await narrate(page, "Cheque 004901, for PKR 247,968.00. Tendered against one overdue sales-tax bill. Remember this cheque — the bank has not paid it yet.");
 
     await page.getByRole("button", { name: /^Lodge / }).click();
     await page.getByText("Instrument lodged and linked").first().waitFor({ timeout: 20_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "The credit is provisional, and stays provisional",
-      "The bank can still take this money back, so it can never be swept to treasury, and the receipt says so on its face rather than implying the obligation is discharged.",
-    );
+    await narrate(page, "The credit is provisional, and stays provisional. The bank can still take this money back, so it can never be swept to treasury, and the receipt says so on its face rather than implying the obligation is discharged.");
 
     await go(page, `${FIELD}/till`);
-    await caption(
-      page,
-      "Closing the till",
-      "The teller counts the drawer. Any difference from what the platform expected is posted to the ledger as a real over/short entry, not absorbed into a rounding line — and the trial balance still ties afterwards.",
-    );
-    await caption(page, "Only a teller can accept money", "A branch supervisor cannot. A supervisor reverses a teller's mistakes, and somebody who can both take money and reverse it is not a control.");
-    await clearCaption(page);
+    await narrate(page, "Closing the till. The teller counts the drawer. Any difference from what the platform expected is posted to the ledger as a real over/short entry, not absorbed into a rounding line — and the trial balance still ties afterwards.");
+    await narrate(page, "Only a teller can accept money. A branch supervisor cannot. A supervisor reverses a teller's mistakes, and somebody who can both take money and reverse it is not a control.");
     await pause(page, LINGER);
   },
 };
@@ -605,18 +504,9 @@ const agencySeesIt: Beat = {
   run: async (page) => {
     await go(page, AGENCY);
     await becomePersona(page, AGENCY_ADMIN);
-    await caption(
-      page,
-      "Back to the agency, after the money moved",
-      "Confirmed has risen by exactly the PKR 10,000.00 token tax that citizen paid. Nothing here is entered by hand — every figure is computed from the ledger at the demonstration business date.",
-    );
+    await narrate(page, "Back to the agency, after the money moved. Confirmed has risen by exactly the PKR 10,000.00 token tax that citizen paid. Nothing here is entered by hand — every figure is computed from the ledger at the demonstration business date.");
     await reveal(page, "SWEPT TO TREASURY");
-    await caption(
-      page,
-      "Swept is still zero, and that is correct",
-      "The money is confirmed against the bills but has not left the collection account. Swept lags on purpose: it is the number a finance officer can trust precisely because it is the most conservative of the three.",
-    );
-    await clearCaption(page);
+    await narrate(page, "Swept is still zero, and that is correct. The money is confirmed against the bills but has not left the collection account. Swept lags on purpose: it is the number a finance officer can trust precisely because it is the most conservative of the three.");
     await pause(page, LINGER);
   },
 };
@@ -628,40 +518,20 @@ const reconcile: Beat = {
   run: async (page) => {
     await go(page, `${OPS}/breaks`);
     await becomePersona(page, ANALYST);
-    await caption(
-      page,
-      "The operator's back office",
-      "Cross-agency, and organised around queues rather than dashboards. Reconciliation is three-way: the bank's statement, the switch's settlement file, and the rail's settlement file.",
-    );
+    await narrate(page, "The operator's back office. Cross-agency, and organised around queues rather than dashboards. Reconciliation is three-way: the bank's statement, the switch's settlement file, and the rail's settlement file.");
 
     await page.getByRole("button", { name: "Run reconciliation" }).click();
     await page.getByText("Breaks found").first().waitFor({ timeout: 30_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Eleven breaks — and eleven is the point",
-      "Not ten, not twelve. The dataset has exactly eleven planted discrepancies and the engine finds exactly those, which is very hard to fake. Three of them resolve themselves.",
-    );
-    await caption(
-      page,
-      "A break is a disagreement, not missing money",
-      "PKR 764,109.50 unexplained does not mean three quarters of a million rupees has gone. Most of these are filing problems — a treasury line posted to a head that is not valid for the period, a fee 7.50 above contract, a bank booking a day later than the platform.",
-    );
+    await narrate(page, "Eleven breaks — and eleven is the point. Not ten, not twelve. The dataset has exactly eleven planted discrepancies and the engine finds exactly those, which is very hard to fake. Three of them resolve themselves.");
+    await narrate(page, "A break is a disagreement, not missing money. PKR 764,109.50 unexplained does not mean three quarters of a million rupees has gone. Most of these are filing problems — a treasury line posted to a head that is not valid for the period, a fee 7.50 above contract, a bank booking a day later than the platform.");
     await reveal(page, "RESOLVED");
-    await caption(
-      page,
-      "The mechanical ones resolve themselves",
-      "Two timing differences across a date boundary, and one settlement row the switch sent twice. Identifiable without a human, so no human is asked.",
-    );
+    await narrate(page, "The mechanical ones resolve themselves. Two timing differences across a date boundary, and one settlement row the switch sent twice. Identifiable without a human, so no human is asked.");
 
     await reveal(page, "OPEN");
     await page.getByRole("button", { name: "Propose a resolution" }).first().click();
     await pause(page, BEAT);
-    await caption(
-      page,
-      "An analyst proposes a resolution",
-      "Five options: match it manually, accept it as timing, reclassify it, write it off, or escalate to the agency. The narrative is not optional — somebody has to say what they found.",
-    );
+    await narrate(page, "An analyst proposes a resolution. Five options: match it manually, accept it as timing, reclassify it, write it off, or escalate to the agency. The narrative is not optional — somebody has to say what they found.");
     await page.getByPlaceholder("What you found, and why this resolution").fill(
       "Rail cycle net understated against its constituent payments; confirmed with the rail's own cycle report and escalating to the agency.",
     );
@@ -669,19 +539,14 @@ const reconcile: Beat = {
     await page.getByRole("button", { name: "Propose", exact: true }).click();
     await page.getByText("AWAITING APPROVAL").first().waitFor({ timeout: 15_000 });
     await pause(page, BEAT);
-    await caption(page, "And cannot approve it", "It moves to awaiting approval. The analyst has no button to finish the job.");
+    await narrate(page, "And cannot approve it. It moves to awaiting approval. The analyst has no button to finish the job.");
 
     await becomePersona(page, APPROVER);
     await pause(page, BEAT);
-    await caption(
-      page,
-      "A different person, in a different role",
-      "Maker-checker here is enforced twice: the same user id is refused, and proposing and approving require different roles. Two accounts belonging to one person defeats an id check — it does not defeat this.",
-    );
+    await narrate(page, "A different person, in a different role. Maker-checker here is enforced twice: the same user id is refused, and proposing and approving require different roles. Two accounts belonging to one person defeats an id check — it does not defeat this.");
     await page.getByRole("button", { name: "Approve" }).first().click();
     await pause(page, BEAT);
-    await caption(page, "Resolved, with both names against it", "Who proposed it, who approved it, what they said, and when. That record is the reason a resolution can be trusted at all.");
-    await clearCaption(page);
+    await narrate(page, "Resolved, with both names against it. Who proposed it, who approved it, what they said, and when. That record is the reason a resolution can be trusted at all.");
     await pause(page, LINGER);
   },
 };
@@ -714,11 +579,7 @@ const chequeBounces: Beat = {
   run: async (page) => {
     await go(page, `${OPS}/instruments`);
     await becomePersona(page, ANALYST);
-    await caption(
-      page,
-      "Three days later, the bank returns it",
-      "Cheque 004901, PKR 247,968.00, insufficient funds — the one the teller took across the counter. One action, and watch what it has to undo.",
-    );
+    await narrate(page, "Three days later, the bank returns it. Cheque 004901, PKR 247,968.00, insufficient funds — the one the teller took across the counter. One action, and watch what it has to undo.");
 
     // Located by cheque number rather than by position: the caption names this
     // specific instrument and its amount, so clicking whatever happens to be first
@@ -729,19 +590,10 @@ const chequeBounces: Beat = {
     await cheque.getByRole("button", { name: "Return (dishonour)" }).click();
     await page.getByText("Dishonour cascade applied").first().waitFor({ timeout: 25_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Everything it funded, unwound at once",
-      "Every allocation the cheque funded is reversed. Every bill it settled is un-settled. Every receipt it produced is VOIDED — never deleted, still linked to the original. Surcharge resumes from the ORIGINAL due date, so the bill gets no holiday for the time it sat as provisionally paid. The service gate closes again. And a dishonour charge is raised automatically.",
-    );
+    await narrate(page, "Everything it funded, unwound at once. Every allocation the cheque funded is reversed. Every bill it settled is un-settled. Every receipt it produced is VOIDED — never deleted, still linked to the original. Surcharge resumes from the ORIGINAL due date, so the bill gets no holiday for the time it sat as provisionally paid. The service gate closes again. And a dishonour charge is raised automatically.");
 
     await go(page, `${CITIZEN}/verify`);
-    await caption(
-      page,
-      "And the receipt the payer is holding",
-      "A receipt that verified as valid an hour ago now verifies as VOIDED, with the reason. That is why status is the headline of the public verification screen and not a footnote.",
-    );
-    await clearCaption(page);
+    await narrate(page, "And the receipt the payer is holding. A receipt that verified as valid an hour ago now verifies as VOIDED, with the reason. That is why status is the headline of the public verification screen and not a footnote.");
     await pause(page, LINGER);
   },
 };
@@ -756,59 +608,34 @@ const proveIt: Beat = {
   run: async (page) => {
     await go(page, `${OPS}/controls`);
     await becomePersona(page, ANALYST);
-    await caption(
-      page,
-      "Five control assertions, re-performed on demand",
-      "Not a status page. Every one of these is recomputed against the live ledger the moment you ask, because a stored 'all green' proves nothing.",
-    );
+    await narrate(page, "Five control assertions, re-performed on demand. Not a status page. Every one of these is recomputed against the live ledger the moment you ask, because a stored 'all green' proves nothing.");
     await page.getByRole("button", { name: "Re-perform all five" }).click();
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Every entry balances, every cached balance rebuilds identically",
-      "The third check is the quiet one: throw away every cached balance column, recompute from the allocations, and get the same numbers to the paisa. Cached figures are only ever a cache.",
-    );
+    await narrate(page, "Every entry balances, every cached balance rebuilds identically. The third check is the quiet one: throw away every cached balance column, recompute from the allocations, and get the same numbers to the paisa. Cached figures are only ever a cache.");
 
-    await caption(page, "Now break it, on camera", "The harness bar has a button whose only purpose is to corrupt a row in the financial ledger. Nothing in the product can do this.");
+    await narrate(page, "Now break it, on camera. The harness bar has a button whose only purpose is to corrupt a row in the financial ledger. Nothing in the product can do this.");
     await page.getByRole("button", { name: "Break the chain" }).click();
     await pause(page, LINGER);
     await page.getByRole("button", { name: "Re-perform all five" }).click();
     await pause(page, BEAT);
-    await caption(
-      page,
-      "Caught, and named",
-      "Not a general warning that something somewhere is wrong. The specific journal entry that was altered, by number — because each entry's hash covers the one before it, so a changed row can only be consistent with itself.",
-    );
+    await narrate(page, "Caught, and named. Not a general warning that something somewhere is wrong. The specific journal entry that was altered, by number — because each entry's hash covers the one before it, so a changed row can only be consistent with itself.");
 
     await page.getByRole("button", { name: "Reset" }).click();
     await pause(page, LINGER);
     await go(page, `${OPS}/controls`);
     await page.getByRole("button", { name: "Re-perform all five" }).click();
     await pause(page, BEAT);
-    await caption(page, "Reset, and verifiable again", "Same actions, same numbers, every take.");
+    await narrate(page, "Reset, and verifiable again. Same actions, same numbers, every take.");
 
     await go(page, `${OPS}/sweep`);
-    await caption(
-      page,
-      "Finally, the money leaves",
-      "The sweep moves confirmed, final money to treasury and refuses anything provisional. Run it for one agency and watch what it produces.",
-    );
+    await narrate(page, "Finally, the money leaves. The sweep moves confirmed, final money to treasury and refuses anything provisional. Run it for one agency and watch what it produces.");
     await page.getByRole("button", { name: "Run sweep" }).click();
     await page.getByText("swept", { exact: false }).first().waitFor({ timeout: 25_000 });
     await pause(page, BEAT);
-    await caption(
-      page,
-      "And the scroll goes with it",
-      "One line per allocation, with a control total. It is never emitted unless that total ties exactly to the ledger — because treasury is being asked to acknowledge receipt of exactly what the platform says it sent.",
-    );
+    await narrate(page, "And the scroll goes with it. One line per allocation, with a control total. It is never emitted unless that total ties exactly to the ledger — because treasury is being asked to acknowledge receipt of exactly what the platform says it sent.");
     await reveal(page, "Control total");
     await pause(page, LINGER);
-    await caption(
-      page,
-      "That is the whole argument",
-      "One reference finds every bill. One payment is provably split across heads and agencies. Every discrepancy is found, and resolved by two people. Nothing reaches treasury unless it ties. And if anybody alters the record, the platform names what they touched.",
-    );
-    await clearCaption(page);
+    await narrate(page, "That is the whole argument. One reference finds every bill. One payment is provably split across heads and agencies. Every discrepancy is found, and resolved by two people. Nothing reaches treasury unless it ties. And if anybody alters the record, the platform names what they touched.");
     await pause(page, LINGER);
   },
 };
@@ -822,7 +649,6 @@ async function newContext(browser: Browser, record: boolean): Promise<BrowserCon
     viewport: { width: 1920, height: 1080 },
     ...(record ? { recordVideo: { dir: RAW, size: { width: 1920, height: 1080 } } } : {}),
   });
-  await context.addInitScript(OVERLAY);
   return context;
 }
 
@@ -920,9 +746,10 @@ async function writeNarrationManifest(): Promise<void> {
 
   const titles = new Map(BEATS.map((b) => [b.id, b.title]));
   let index = `# Narration — recording sheets\n\n`;
-  index += `Generated by \`npx tsx scripts/record-demo.ts --dry --manifest\`. Do not edit by hand:\n`;
-  index += `these lines are the captions the film puts on screen, so the script and the picture\n`;
-  index += `cannot disagree. Change the wording in \`scripts/record-demo.ts\` and regenerate.\n\n`;
+  index += `Generated by \`npx tsx scripts/record-demo.ts --dry --manifest\`. Do not edit by hand —\n`;
+  index += `the script lives in \`scripts/record-demo.ts\` beside the actions it narrates, so that a\n`;
+  index += `line and the thing it describes cannot drift apart. Change it there and regenerate.\n\n`;
+  index += `The film has **no on-screen text**. The narration carries the entire explanation.\n\n`;
   index += `## How to record\n\n`;
   index += `One file per beat is easiest — read the numbered lines in order, leaving a clear\n`;
   index += `**one to two second pause** between them. The pauses are how the pipeline finds\n`;
@@ -953,12 +780,11 @@ async function writeNarrationManifest(): Promise<void> {
     const total = lines.reduce((sum, l) => sum + l.words, 0);
     let sheet = `# ${beat} — ${titles.get(beat) ?? ""}\n\n`;
     sheet += `${lines.length} lines, ${total} words, roughly ${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s at a measured pace.\n\n`;
-    sheet += `Read the lines in order. **Pause for one to two seconds between them** — that is how\n`;
-    sheet += `the split finds the boundaries. The bold part is the on-screen heading; you can read\n`;
-    sheet += `it as the opening phrase of the sentence or skip it, whichever sounds natural.\n\n---\n\n`;
+    sheet += `Read the passages in order. **Pause for one to two seconds between them** — that is\n`;
+    sheet += `how the split finds the boundaries. Nothing appears on screen, so the narration\n`;
+    sheet += `carries the whole explanation; say it as you would to somebody sitting beside you.\n\n---\n\n`;
     for (const line of lines) {
-      sheet += `### ${String(line.index).padStart(2, "0")}\n\n**${line.title}.**`;
-      sheet += line.body ? ` ${line.body}\n\n` : `\n\n`;
+      sheet += `### ${String(line.index).padStart(2, "0")}\n\n${line.script}\n\n`;
     }
     await writeFile(join(NARRATION_DIR, `${beat}.md`), sheet, "utf8");
   }
@@ -976,12 +802,11 @@ async function writeNarrationManifest(): Promise<void> {
   for (const [beat, lines] of byBeat) {
     await mkdir(join(TEXT_DIR, beat), { recursive: true });
     for (const line of lines) {
-      const spoken = line.body ? `${line.title}. ${line.body}` : `${line.title}.`;
-      await writeFile(join(TEXT_DIR, beat, `${String(line.index).padStart(2, "0")}.txt`), `${spoken}\n`, "utf8");
+      await writeFile(join(TEXT_DIR, beat, `${String(line.index).padStart(2, "0")}.txt`), `${line.script}\n`, "utf8");
     }
     // And the whole beat in one file, for a tool that would rather take one pass.
     // Blank lines between passages, which most synthesisers render as a pause.
-    const whole = lines.map((l) => (l.body ? `${l.title}. ${l.body}` : `${l.title}.`)).join("\n\n");
+    const whole = lines.map((l) => l.script).join("\n\n");
     await writeFile(join(TEXT_DIR, `${beat}.txt`), `${whole}\n`, "utf8");
   }
 
