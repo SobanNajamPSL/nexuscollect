@@ -5,7 +5,8 @@ platform does.
 
 | | |
 |---|---|
-| [`SHOT-LIST.md`](SHOT-LIST.md) | Every beat, in order, with what is on screen and the caption text |
+| [`PRESENTER-SCRIPT.md`](PRESENTER-SCRIPT.md) | **For recording it yourself.** Nine independently-recordable sections: what to click, the points worth landing, and the figure you should see so nothing surprises you on camera. |
+| [`SHOT-LIST.md`](SHOT-LIST.md) | The automated film's beats, in order, with the narration verbatim |
 | [`recordings/`](recordings/) | The film and the standalone beat clips |
 | `../../scripts/record-demo.ts` | The script that produces them. **This is the authoritative version of the demonstration** — the narration lives in the code, so the film can always be regenerated from it |
 | [`KNOWN-GAPS.md`](KNOWN-GAPS.md) | What the demonstration does not show, and why |
