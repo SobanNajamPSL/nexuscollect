@@ -1,8 +1,8 @@
 /**
- * Fastify route schemas transcribed from api/openapi.yaml's ResolveRequest /
+ * Fastify route schemas transcribed from spec/openapi.yaml's ResolveRequest /
  * ResolveResponse / Payable / Problem components (lines 2120-2352). Fastify
  * validates request/response against these via its built-in ajv instance —
- * this is the "generated against api/openapi.yaml" contract-fidelity
+ * this is the "generated against spec/openapi.yaml" contract-fidelity
  * mechanism for Phase 1, without a separate codegen pipeline.
  */
 

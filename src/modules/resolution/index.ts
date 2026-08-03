@@ -15,7 +15,7 @@ import { normalizeKeyValue } from "./normalize.js";
 
 /**
  * §7.5 documents cardinality/privacy rules in prose for 11 of the 17
- * `ResolutionKeyType` enum values from api/openapi.yaml. Finding C (audit):
+ * `ResolutionKeyType` enum values from spec/openapi.yaml. Finding C (audit):
  * this now implements real, fixture-backed resolution for ALL 17 — the
  * generic `resolution_index` lookup below covers 12 of them uniformly (PSID,
  * RF_REFERENCE, CRN, and every `secondary_lookup_keys` type any product
@@ -53,7 +53,7 @@ export interface ResolveInput {
 }
 
 /** finding M: `*_minor` fields are wire-serialised as a JSON integer of minor
- * units (api/openapi.yaml's `MinorAmount`: `{type: integer, format: int64}`)
+ * units (spec/openapi.yaml's `MinorAmount`: `{type: integer, format: int64}`)
  * — never a decimal, never a string. `bigint` stays the internal
  * representation throughout; `toWireMinor` converts only at this DTO
  * boundary, guarded to throw rather than silently truncate past

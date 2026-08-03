@@ -11,12 +11,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
 
 /**
- * PROMPTS.md Prompt 0, acceptance test 9: "All 22 files in demo-data/ load, and
+ * archive/PROMPTS.md Prompt 0, acceptance test 9: "All 22 files in demo-data/ load, and
  * all eight generator assertions still hold against the loaded DATABASE (not
  * the CSVs)." Two things worth being precise about, re-verified directly
  * against the design document (audit finding Q):
  *
- * - "22 files" is PROMPTS.md's own count and it's simply inaccurate — `ls
+ * - "22 files" is archive/PROMPTS.md's own count and it's simply inaccurate — `ls
  *   demo-data/` returns 21 entries (20 data/fixture files + README.md). There
  *   is no 22nd file on disk or named anywhere in demo-data/README.md.
  * - "8 generator assertions... against the loaded database" is NOT a

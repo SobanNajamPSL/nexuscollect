@@ -13,7 +13,7 @@ const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
 
 /**
  * Finding C (audit): all 17 `ResolutionKeyType` enum values from
- * api/openapi.yaml must resolve for real, against real demo-data fixture
+ * spec/openapi.yaml must resolve for real, against real demo-data fixture
  * values wherever they exist — not a hard-coded closed list, not a
  * "NOT_CONFIGURED" placeholder. Every value below was confirmed present in
  * demo-data/assessments.csv's `metadata` column (or payers.csv/payer_accounts.csv

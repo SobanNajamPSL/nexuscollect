@@ -12,10 +12,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
 
 /**
- * PROMPTS.md Prompt 2's exact gate criteria, verified together against the
+ * archive/PROMPTS.md Prompt 2's exact gate criteria, verified together against the
  * real, fully-loaded (including the loader-time journal backfill) demo dataset.
  */
-describe("Phase 2 gate (PROMPTS.md Prompt 2)", () => {
+describe("Phase 2 gate (archive/PROMPTS.md Prompt 2)", () => {
   let testDb: TestDb;
   let app: FastifyInstance;
   const clock = new DemoClock();

@@ -6,7 +6,7 @@
  * numbers without spinning up Postgres.
  *
  * PRO_RATA's exact algorithm is NOT specified anywhere in the spec (confirmed
- * by an exhaustive grep — only PROMPTS.md names "true PRO_RATA with
+ * by an exhaustive grep — only archive/PROMPTS.md names "true PRO_RATA with
  * largest-remainder distribution"). This implements the standard Hare-quota
  * largest-remainder method: floor-divide each line's proportional share, then
  * distribute the leftover paisa one at a time to the largest remainders,

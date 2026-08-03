@@ -1,5 +1,5 @@
 /**
- * Fastify route schemas transcribed from api/openapi.yaml's
+ * Fastify route schemas transcribed from spec/openapi.yaml's
  * CreateAssessmentRequest / Assessment / LineItemInput components, for
  * finding L's four assessment CRUD routes. Scoped narrowly to what finding L
  * asked for — not searchAssessments, bulkCreateAssessments, or the RtP/notify

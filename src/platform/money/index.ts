@@ -42,7 +42,7 @@ export function parseJsonMinor(value: unknown): MinorAmount {
 }
 
 /**
- * api/openapi.yaml's `MinorAmount` schema is `type: integer, format: int64` — a JSON
+ * spec/openapi.yaml's `MinorAmount` schema is `type: integer, format: int64` — a JSON
  * number, not a string. CLAUDE.md's own hard rule permits this explicitly: "Serialise
  * as a string **or a JSON number of minor units**; never a decimal." bigint stays the
  * only internal representation; this is only the wire-boundary conversion, and it

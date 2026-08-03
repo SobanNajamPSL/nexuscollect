@@ -93,7 +93,7 @@ the narration cannot drift away from what is being shown.
 
 The film is silent with captions burned in. To add a voiceover, the script is already
 written — the captions *are* the narration — and
-[`../narration/`](../narration/) holds a recording sheet per beat, generated from the
+[`narration/`](narration/) holds a recording sheet per beat, generated from the
 same calls that put the text on screen, so the script and the picture cannot drift.
 
 ```bash

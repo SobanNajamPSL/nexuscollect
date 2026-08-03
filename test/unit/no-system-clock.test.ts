@@ -3,7 +3,7 @@ import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 /**
- * PROMPTS.md Prompt 0, acceptance test 8: "A lint rule fails the build on
+ * archive/PROMPTS.md Prompt 0, acceptance test 8: "A lint rule fails the build on
  * `new Date()` or `Date.now()` inside src/." Runs the real eslint.config.js
  * against in-memory fixture text rather than re-implementing the rule's logic,
  * so this test would actually fail if eslint.config.js regressed.

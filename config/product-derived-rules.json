@@ -9,7 +9,7 @@
         "valid_until": { "type": "DAYS_FROM_ISSUE", "days": 10 },
         "applies_to_line_types": ["PRINCIPAL"]
       },
-      "_note": "Verified against demo-data/assessments.csv AS-00072: assessed_amount_minor=500000, discount_applied_minor=125000 (exactly 25%), issue_date=2026-07-22, and the resulting discount_expires_on=2026-08-01 matches api/openapi.yaml's own illustrative example for this same field."
+      "_note": "Verified against demo-data/assessments.csv AS-00072: assessed_amount_minor=500000, discount_applied_minor=125000 (exactly 25%), issue_date=2026-07-22, and the resulting discount_expires_on=2026-08-01 matches spec/openapi.yaml's own illustrative example for this same field."
     }
   ],
   "_surcharge_note": "No surcharge_rule is seeded for any product. The two LEA-17-1000 anchor payables that are OVERDUE (AS-00057, AS-00073) both show surcharge_accrued_minor=0 in demo-data despite being overdue — while 10 OTHER ETPB-TOKEN-CAR assessments elsewhere in the pack carry a nonzero baked-in surcharge. This means the generator's real surcharge logic is more nuanced than a uniform DAILY_SIMPLE-from-due-date rule, and reverse-engineering it exactly isn't achievable from documented, non-invented configuration. computeDerived's surcharge mechanism (§15.4, DAILY_SIMPLE/ACT_365/capped) is real and unit-tested directly — it's just not switched on for any product via this file, which is an honest, reported gap rather than a guess."

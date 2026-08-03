@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type ConsoleMessage, type Page } from "playwright";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT = join(__dirname, "..", "docs", "user-manual", "images");
+const OUT = join(__dirname, "..", "docs", "manual", "images");
 const API = "http://localhost:3000";
 
 /** Per-portal viewports: a phone for the public surface, a desk for the rest. */

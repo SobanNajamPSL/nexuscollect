@@ -4,7 +4,7 @@ import { startTestDb, type TestDb } from "./helpers.js";
 import { withAgencyContext } from "../../src/db/client.js";
 
 /**
- * PROMPTS.md Prompt 0, acceptance test 6: "Agency A cannot read agency B's
+ * archive/PROMPTS.md Prompt 0, acceptance test 6: "Agency A cannot read agency B's
  * assessment even with a valid PSID." Builds two agencies with one assessment
  * each (minimal fixtures, independent of demo-data) and confirms RLS (§23.1)
  * blocks the cross-tenant read.

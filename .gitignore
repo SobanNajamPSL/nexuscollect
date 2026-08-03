@@ -9,9 +9,9 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 
-# Recording intermediates. Playwright's WebM originals are the lossless source and
-# are kept locally for re-encoding, but they are large and regenerable from
-# scripts/record-demo.ts — which is the authoritative version of the demonstration.
+# Recording intermediates and output. Playwright's WebM originals are the lossless
+# source, kept locally for re-encoding. capture-problems.txt is debug output from a
+# failed screenshot sweep.
 docs/demo/recordings/*.webm
 docs/demo/recordings/raw/
 capture-problems.txt
@@ -22,3 +22,12 @@ capture-problems.txt
 docs/demo/narration/audio/
 docs/demo/narration/durations.json
 docs/demo/narration/audio-files.json
+
+# macOS
+.DS_Store
+
+# The recordings. The scripts that produce them are committed and are the
+# authoritative version of the demonstration — see docs/demo/README.md. Keeping ~50 MB
+# of video in history, re-committed on every re-record, was making the repository far
+# heavier than the thing it demonstrates.
+docs/demo/recordings/*.mp4

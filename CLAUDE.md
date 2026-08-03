@@ -62,7 +62,7 @@ Chosen for speed to a working, recordable demo. Do not substitute.
 | Layer | Choice |
 |---|---|
 | Runtime | Node 22, TypeScript strict mode |
-| API | Fastify, generated against `api/openapi.yaml` |
+| API | Fastify, generated against `spec/openapi.yaml` |
 | Database | PostgreSQL 16 |
 | Query layer | **Kysely** — raw-SQL control. **No ORM for the ledger or allocation engine.** |
 | Migrations | Plain `.sql` files in `db/migrations/`, applied in order |
@@ -142,7 +142,7 @@ journey clarity. Do not spend time on ledger visualisations they will not ask ab
 
 ## Phase discipline
 
-Work the phases in `PROMPTS.md`, in order. For each phase:
+Work the phases in `archive/PROMPTS.md`, in order. For each phase:
 
 - Implement **only** that phase. Do not build ahead.
 - Stop at the gate. Run the phase's acceptance criteria from §25 and show me the

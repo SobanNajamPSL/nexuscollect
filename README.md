@@ -8,19 +8,16 @@ abstraction layer.
 
 | Path | What it is |
 |---|---|
-| `P2G-Collection-Platform-Design.md` | **The specification.** 28 sections, normative. The only document you need to read. |
-| `CLAUDE.md` | Standing instructions for the coding agent. Stack, hard rules, demo-mode requirements. |
-| `PROMPTS.md` | The eight phase prompts the build was worked through, in order. |
-| `api/openapi.yaml` | OpenAPI 3.1 contract. 48 paths across six API surfaces, 5 webhooks. Validated. |
-| `demo-data/` | Seed dataset **and** the test fixture. Read-only — never regenerated to make a test pass. See its own README. |
+| `spec/` | **The normative contract.** `P2G-Collection-Platform-Design.md` — 28 sections, cited by number throughout the code — and `openapi.yaml`, the OpenAPI 3.1 surface. |
 | `src/` | The platform: twelve capability modules, rail adapters, five API surfaces, platform primitives. |
 | `web/` | Four portals — `citizen/`, `agency/`, `ops/`, `field/` — plus `shared/`, which holds the demonstration harness. |
 | `db/migrations/` | Plain `.sql`, applied in order. |
 | `test/` | Vitest, against a real Postgres via Testcontainers. |
-| `docs/user-manual/` | **Start here to understand the product.** One chapter per portal, with captured screenshots. |
-| `docs/demo/` | The recording script, shot list, and the recordings. |
-| `docs/runbooks/` | Twelve operational runbooks. |
-| `scripts/generate_demo_data.py` | Regenerates `demo-data/`. Deterministic, 17 self-checks. Do not run it to fix a failing assertion. |
+| `scripts/` | Migrate, seed, capture every screen, record the demonstration, build its narration. |
+| `demo-data/` + `config/` | Seed dataset **and** the test fixture. Read-only — never regenerated to make a test pass. Siblings by necessity: the loader resolves `config/` relative to `demo-data/`. |
+| `docs/` | [Manual](docs/manual/), [demonstration](docs/demo/), [runbooks](docs/runbooks/). Start with `docs/manual/`. |
+| `archive/` | The phase prompts, the original UI brief, the reference prototype. Provenance only — nothing there is current, and [its README says why](archive/README.md). |
+| `CLAUDE.md` | Standing instructions for the coding agent. Stack, hard rules, demo-mode requirements. `AGENTS.md` points here. |
 
 ## Running it
 
@@ -52,7 +49,7 @@ npm --prefix web run dev:field     # field.localhost:5177
 A visibly-labelled **demonstration harness** bar above every portal carries the
 persona switcher, the portal switcher, the demo clock, reset, and a button that
 deliberately corrupts the ledger. None of it is part of the product;
-[`docs/user-manual/01-demonstration-harness.md`](docs/user-manual/01-demonstration-harness.md)
+[`docs/manual/01-demonstration-harness.md`](docs/manual/01-demonstration-harness.md)
 explains why it sits outside rather than inside.
 
 To check the whole thing still works, including every screen:

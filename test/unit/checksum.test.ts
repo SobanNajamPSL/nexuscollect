@@ -18,7 +18,7 @@ describe("Damm checksum (§7.3, PSID default)", () => {
     expect(dammValidate(withCheck)).toBe(true);
   });
 
-  // PROMPTS.md Prompt 0, acceptance test 1: "Damm catches every single-digit
+  // archive/PROMPTS.md Prompt 0, acceptance test 1: "Damm catches every single-digit
   // substitution AND every adjacent transposition across 10,000 random PSIDs."
   it("catches every single-digit substitution across 10,000 random 17-digit PSIDs", () => {
     for (let n = 0; n < 10_000; n++) {

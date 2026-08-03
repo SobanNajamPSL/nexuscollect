@@ -37,7 +37,7 @@ describe("Ledger: append-only, balanced-at-commit, hash-chain tamper detection",
     expect(entry).toBeDefined();
   });
 
-  // PROMPTS.md Prompt 0, acceptance test 3: "An unbalanced journal entry raises
+  // archive/PROMPTS.md Prompt 0, acceptance test 3: "An unbalanced journal entry raises
   // at COMMIT, not at INSERT." The deferred constraint trigger only checks at
   // commit, so both journal_line INSERTs succeed and only the transaction's
   // final COMMIT (wrapped inside postJournalEntry's `db.transaction().execute`)
@@ -70,7 +70,7 @@ describe("Ledger: append-only, balanced-at-commit, hash-chain tamper detection",
     expect(orphanLines).toHaveLength(0);
   });
 
-  // PROMPTS.md Prompt 0, acceptance test 2: "UPDATE and DELETE on journal_entry
+  // archive/PROMPTS.md Prompt 0, acceptance test 2: "UPDATE and DELETE on journal_entry
   // and journal_line are no-ops."
   it("makes UPDATE and DELETE on journal_entry / journal_line no-ops", async () => {
     const { id: entryId } = await postJournalEntry(
@@ -136,7 +136,7 @@ describe("Ledger: append-only, balanced-at-commit, hash-chain tamper detection",
     expect(entries).toHaveLength(1);
   });
 
-  // PROMPTS.md Prompt 0, acceptance test 4: "Tampering with a journal row is
+  // archive/PROMPTS.md Prompt 0, acceptance test 4: "Tampering with a journal row is
   // detected by verify-chain, which names the entry." We bypass the RULE by
   // going around it — the RULE blocks UPDATE/DELETE, but the whole point of a
   // hash chain is to also catch tampering that *did* get through some other way

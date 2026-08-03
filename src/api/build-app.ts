@@ -866,7 +866,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
    * An agency's own book of bills, browsable and filterable.
    *
    * This is genuinely new surface, not an unimplemented contract path: neither
-   * `api/openapi.yaml` nor this build had any way to *list* assessments — only
+   * `spec/openapi.yaml` nor this build had any way to *list* assessments — only
    * single-PSID lookup (`GET /v1/agency/assessments/{psid}` and the 360° view).
    * Which meant the one thing an agency finance officer would try first, on a
    * portal built for them, was impossible.

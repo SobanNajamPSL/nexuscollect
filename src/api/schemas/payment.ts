@@ -1,5 +1,5 @@
 /**
- * Fastify route schemas transcribed from api/openapi.yaml's
+ * Fastify route schemas transcribed from spec/openapi.yaml's
  * CreatePaymentIntentRequest / ConfirmPaymentRequest / PaymentIntent /
  * Payment components, for Phase 2's apply pipeline routes. Settlement-cycle/
  * settlement-status fields are Phase 5 (treasury/sweep) territory and are

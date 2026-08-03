@@ -3,7 +3,7 @@ import { sql } from "kysely";
 import { startTestDb, type TestDb } from "./helpers.js";
 
 /**
- * PROMPTS.md Prompt 0, acceptance test 7: "No money column anywhere is
+ * archive/PROMPTS.md Prompt 0, acceptance test 7: "No money column anywhere is
  * float/double/numeric/Decimal." Introspects the actual schema rather than
  * trusting the migration source — this is what a reviewer restoring the DB and
  * running `\d+` would actually see.

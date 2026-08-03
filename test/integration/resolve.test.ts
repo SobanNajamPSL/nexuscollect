@@ -17,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEMO_DATA_DIR = join(__dirname, "..", "..", "demo-data");
 
 /**
- * PROMPTS.md Prompt 1's 5 gate criteria, plus the explicit ask to show the
+ * archive/PROMPTS.md Prompt 1's 5 gate criteria, plus the explicit ask to show the
  * LEA-17-1000 resolve response verbatim.
  */
 describe("Phase 1: POST /v1/resolve", () => {
