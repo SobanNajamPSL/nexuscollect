@@ -1,8 +1,20 @@
 # Shot list
 
-Every beat, in order, with what is on screen and the caption that appears over it.
-The authoritative version is `scripts/record-demo.ts` — this document exists so the
-film can be reviewed, re-cut or re-narrated without reading code.
+Every beat of the **automated** film, in order, with the narration written for it.
+
+The film carries no on-screen text: an earlier cut burned the script in as a
+lower-third and it was removed, because text written to be read is not text written to
+be spoken, and the gradient behind it covered the bottom of the very tables the film
+argues about. So each passage below is what the narrator *says* over that stretch of
+picture, not something the viewer reads.
+
+The authoritative version is `scripts/record-demo.ts`, which holds the script beside
+the actions it describes. This document exists so the film can be reviewed or re-cut
+without reading code.
+
+> **Recording it yourself?** Use [`PRESENTER-SCRIPT.md`](PRESENTER-SCRIPT.md) instead.
+> This is a script for a synthesised or read narration over automated capture; that one
+> is for a person driving the portals and talking.
 
 Recorded at 1920×1080, on the pinned demonstration clock of **2026-07-30 12:00
 Asia/Karachi**. Every amount, PSID and receipt number below is real data from the
@@ -15,7 +27,7 @@ seeded dataset.
 **Portal:** agency, as Bilal Farooq (agency administrator, ETPB)
 **Screen:** Collection position
 
-| Caption | |
+| Narration | |
 |---|---|
 | *NexusCollect — collecting money owed to government* | Start where the audience cares: what one agency can say about its own money, on one business date. |
 | *Three numbers, never one* | Confirmed is what has been applied to this agency's bills. Settled is which bills that discharged. Swept is cash that has actually reached the treasury account. A collection system that reports one figure called 'collected' is misstating its own position. |
@@ -33,7 +45,7 @@ Bills issued: 1 issued, 9 overdue, 21 settled.
 **Portal:** agency, as Bilal Farooq (agency administrator, ETPB)
 **Screen:** Request to pay
 
-| Caption | |
+| Narration | |
 |---|---|
 | *Before waiting, ask* | Everything so far assumes the payer goes looking for their bill. A Request to Pay is the platform asking instead — addressed to a phone number, carrying its own lifecycle, with every step recorded. |
 | *Fourteen requests, in eight different states* | Sent, delivered, presented, accepted, declined, expired, cancelled, undeliverable. A request is a conversation that can end several ways, and an agency needs to see which ended how. |
@@ -56,7 +68,7 @@ machine and the audit trail are real; the delivery channel is not.
 **Portal:** citizen, then agency
 **Screens:** Find a bill → receipt → Request to pay
 
-| Caption | |
+| Narration | |
 |---|---|
 | *The payer pays it — through their own bank* | Nothing special. The same lookup, the same pipeline, the same rail as any other payment. A Request to Pay changes who starts the conversation, not how the collection works. |
 | *Paid, and receipted* | PKR 16,500.00, against the bill the request named. |
@@ -75,7 +87,7 @@ its `fulfilling_payment_id` pointing at the payment that settled it.
 No request this time — the payer arrives with a reference and nothing else, which is
 the other half of the story.
 
-| Caption | |
+| Narration | |
 |---|---|
 | *The citizen portal* | Public. No account, no password, no sign-in. A bill is found with a reference the payer already has in their hand. |
 | *One vehicle registration, two agencies, three bills* | LEA-17-1000 returns bills from the Excise department and from the Safe Cities Authority, in one list, for PKR 16,750.00. Without a shared platform this payer visits two organisations. |
@@ -99,7 +111,7 @@ the other half of the story.
 **Portal:** field, as Nadia Aslam (teller)
 **Screens:** Take a payment → Lodge a cheque → Close the till
 
-| Caption | |
+| Narration | |
 |---|---|
 | *The same day, at a counter* | Oversized targets, high contrast, one task per screen — because this is used standing up, in poor light, with somebody waiting. |
 | *Cash across the counter* | The amount due is computed live, so a surcharge that has accrued since the bill was printed is already in it. The teller reads it back before accepting the money. |
@@ -122,7 +134,7 @@ keeps. Cheque 004901 for PKR 247,968.00 against PSID 12010400001899869.
 **Portal:** agency, as Bilal Farooq
 **Screen:** Collection position
 
-| Caption | |
+| Narration | |
 |---|---|
 | *Back to the agency, after the money moved* | Confirmed has risen by exactly the PKR 10,000.00 token tax that citizen paid. Nothing here is entered by hand — every figure is computed from the ledger at the demonstration business date. |
 | *Swept is still zero, and that is correct* | The money is confirmed against the bills but has not left the collection account. Swept lags on purpose: it is the number a finance officer can trust precisely because it is the most conservative of the three. |
@@ -134,7 +146,7 @@ keeps. Cheque 004901 for PKR 247,968.00 against PSID 12010400001899869.
 **Portal:** operator, as Imran Qureshi (reconciliation analyst), then Ayesha Riaz (approver)
 **Screen:** Break register
 
-| Caption | |
+| Narration | |
 |---|---|
 | *The operator's back office* | Cross-agency, and organised around queues rather than dashboards. Reconciliation is three-way: the bank's statement, the switch's settlement file, and the rail's settlement file. |
 | *Eleven breaks — and eleven is the point* | Not ten, not twelve. The dataset has exactly eleven planted discrepancies and the engine finds exactly those, which is very hard to fake. Three of them resolve themselves. |
@@ -156,7 +168,7 @@ B05 in the resolved section.
 **Portal:** operator → citizen
 **Screens:** Instrument clearing → public verification
 
-| Caption | |
+| Narration | |
 |---|---|
 | *Three days later, the bank returns it* | Cheque 004901, PKR 247,968.00, insufficient funds — the one the teller took across the counter. One action, and watch what it has to undo. |
 | *Everything it funded, unwound at once* | Every allocation the cheque funded is reversed. Every bill it settled is un-settled. Every receipt it produced is VOIDED — never deleted, still linked to the original. Surcharge resumes from the ORIGINAL due date, so the bill gets no holiday for the time it sat as provisionally paid. The service gate closes again. And a dishonour charge is raised automatically. |
@@ -169,7 +181,7 @@ B05 in the resolved section.
 **Portal:** operator, as Imran Qureshi
 **Screens:** Control assertions → Sweep operations
 
-| Caption | |
+| Narration | |
 |---|---|
 | *Five control assertions, re-performed on demand* | Not a status page. Every one of these is recomputed against the live ledger the moment you ask, because a stored 'all green' proves nothing. |
 | *Every entry balances, every cached balance rebuilds identically* | The third check is the quiet one: throw away every cached balance column, recompute from the allocations, and get the same numbers to the paisa. Cached figures are only ever a cache. |

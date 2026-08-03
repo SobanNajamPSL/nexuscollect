@@ -33,6 +33,25 @@ allocated across the bill's line items by the product's waterfall, the journal
 entries are posted, and a receipt is minted with a gapless per-agency receipt
 number.
 
+### What the drawer keeps is not what the payer handed over
+
+The teller enters what was **tendered**, and the screen works out the change. What the
+platform captures is what the drawer actually keeps.
+
+Somebody paying a PKR 2,480.00 water bill with a round PKR 3,000.00 note has 2,480.00
+recorded against the bill and 520.00 handed back. Capturing the tender instead would
+overstate the day's collections by the change, leave 520.00 sitting as unapplied money
+nobody had paid, and guarantee the till came up short at close by exactly that amount.
+
+Tendering *less* than is owed is a different thing entirely, and treated differently: it
+is a genuine partial payment, so the platform records what was actually handed over and
+the bill keeps its remaining balance. The rule is that the captured amount is the lesser
+of what was tendered and what was owed — so change can never be negative, and a short
+payment is never silently rounded up.
+
+It is a small piece of arithmetic that looks right until you reconcile the drawer, which
+is why it lives in one tested function rather than in the screen.
+
 Nothing about the cash path is special-cased in the platform's core. The channel is
 `CASH` and the rail is `CASH`; the pipeline behind it is identical to the one a bank
 app uses. That is the design rule — no channel logic outside the adapters — and this

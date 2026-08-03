@@ -9,8 +9,13 @@ platform does.
 | [`PRESENTER-SCRIPT.md`](PRESENTER-SCRIPT.md) | **For recording it yourself.** Nine independently-recordable sections: what to click, the points worth landing, and the figure you should see so nothing surprises you on camera. |
 | [`SHOT-LIST.md`](SHOT-LIST.md) | The automated film's beats, in order, with the narration verbatim |
 | [`recordings/`](recordings/) | The film and the standalone beat clips |
-| `../../scripts/record-demo.ts` | The script that produces them. **This is the authoritative version of the demonstration** — the narration lives in the code, so the film can always be regenerated from it |
+| `../../scripts/record-demo.ts` | Produces the automated film, and holds its narration beside the actions it describes. Also the determinism and route-sweep harness, which is why it stays useful regardless of how the demonstration is finally recorded |
 | [`KNOWN-GAPS.md`](KNOWN-GAPS.md) | What the demonstration does not show, and why |
+
+> **Recording it yourself is the primary route now.** See
+> [`PRESENTER-SCRIPT.md`](PRESENTER-SCRIPT.md) and [`slides/`](slides/). Everything
+> below describes the *automated* film — still useful as a determinism harness and as
+> the raw material for a script, but not the deliverable it was built to be.
 
 ## What is delivered
 
@@ -70,31 +75,33 @@ halfway through a twelve-minute take.
 
 ## Why it looks the way it does
 
-**It is a silent film with captions burned in.** The captions are injected into the
-page by the script rather than added in an editor, because the film has to be
-watchable as-is by somebody who was not in the room. They sit at the bottom over a
-gradient, in a typeface none of the portals use, so they are unmistakably narration
-rather than part of the product.
+**There is no on-screen text.** An earlier cut burned the script into the frame as a
+lower-third and it was removed for two reasons: text written to be read is not text
+written to be spoken, and the gradient behind it covered the bottom of every frame —
+including the last rows of the very tables the film argues about. The picture is now
+only the product.
 
 **It is paced for a person, not for the software.** The commonest way a screen
-recording becomes useless is being cut at the speed the machine responds. Captions
-are held long enough to read.
+recording becomes useless is being cut at the speed the machine responds. Each beat is
+held for as long as its narration takes to say — measured from the recorded audio where
+that exists, and estimated from the word count where it does not yet.
 
 **Every take is identical.** The database is reset before each one and the clock is
 pinned to 30 July 2026, 12:00 Asia/Karachi, so the same actions produce the same
 numbers on the same screens — today, next week, or in a year. There is no randomness
 anywhere the camera can see.
 
-**Nothing on screen is staged.** Every figure comes from the platform running
-against its seeded data. The captions name real amounts, real PSIDs and real receipt
-numbers, and where a caption names a specific cheque the script locates that cheque
-by its number rather than clicking whatever happens to be first in the table — so
-the narration cannot drift away from what is being shown.
+**Nothing on screen is staged.** Every figure comes from the platform running against
+its seeded data. The narration names real amounts, real PSIDs and real receipt numbers,
+and where a passage names a specific cheque the script locates that cheque *by its
+number* rather than clicking whatever happens to be first in the table — so the words
+cannot drift away from what is being shown.
 
 ## Narration
 
-The film is silent with captions burned in. To add a voiceover, the script is already
-written — the captions *are* the narration — and
+The recorder produces silent video; the narration is added afterwards. The script is
+already written — it lives beside the actions it describes in `scripts/record-demo.ts` —
+and
 [`narration/`](narration/) holds a recording sheet per beat, generated from the
 same calls that put the text on screen, so the script and the picture cannot drift.
 
@@ -108,7 +115,7 @@ npx tsx scripts/mux-narration.ts                         # lay the audio on
 ```
 
 The order matters. Narration has to be **measured before the film is recorded**,
-because the audio decides how long each caption stays on screen — an estimate from
+because the audio decides how long each beat holds on screen — an estimate from
 word count is only the fallback for lines nobody has read yet. Getting that backwards
 is what makes a voiceover drift out of step with the picture.
 
@@ -116,12 +123,13 @@ Two consequences worth knowing:
 
 - **A partly-narrated film works.** Any line without audio falls back to its
   word-count estimate, so beats can be recorded one at a time.
-- **Beat clips need their own pass.** A caption's offset in the film is not its offset
+- **Beat clips need their own pass.** A passage's offset in the film is not its offset
   in the standalone clip, so `--beats` records its own timings and the muxer refuses
   to mix the two rather than putting words under the wrong screen.
 
-Captions stay on screen with the voice, deliberately: a ministry will sometimes watch
-this muted in a meeting room, and the caption carries the exact wording.
+There is nothing on screen to keep in step with the voice, which is the other reason
+the on-screen text went: one script, in one place, and no chance of what is written
+disagreeing with what is said.
 
 ## Format
 

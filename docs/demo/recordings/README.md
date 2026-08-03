@@ -33,5 +33,5 @@ the repository.
 | `nexuscollect-full-demonstration.mp4` | ~12m 45s — the whole arc |
 | `beat-00-cold-open.mp4` … `beat-08-prove-it.mp4` | 35s–2m 33s each |
 
-[`../SHOT-LIST.md`](../SHOT-LIST.md) describes every beat and every caption verbatim,
+[`../SHOT-LIST.md`](../SHOT-LIST.md) describes every beat and its narration verbatim,
 so the content is documented in the repository even when the video is not.
