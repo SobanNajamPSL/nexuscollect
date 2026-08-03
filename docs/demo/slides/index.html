@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NexusCollect — demonstration opening</title>
+<!--
+  Opening slides for the recorded demonstration.
+
+  Deliberately in the browser rather than in Keynote or PowerPoint: the whole
+  demonstration is a screen recording of Chrome, so opening here means no app switch on
+  camera, no resolution change, and no risk of a presenter-view window appearing in the
+  capture. Open the file, press F for full screen, and the arrow keys move.
+
+  Self-contained on purpose — no webfont, no CDN, nothing fetched. A demonstration has
+  to render identically with no network, and a slide that waits on a font is a slide
+  that flashes unstyled text at the start of a take.
+
+  The palette is the platform's own: the agency portal's navy and the citizen portal's
+  green, so the opening does not look bolted on to what follows.
+-->
+<style>
+  :root {
+    --navy: #16324f;
+    --navy-deep: #0f2337;
+    --green: #0f5132;
+    --gold: #b08900;
+    --paper: #f7f5f0;
+    --ink: #14261f;
+    --ink-dim: #5f6f68;
+    --rule: rgba(255, 255, 255, 0.14);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--navy-deep);
+    font-family: "Inter", "Helvetica Neue", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* A fixed 16:9 stage scaled to the viewport, so the slide is identical at any
+     window size and the recording never reflows mid-take. */
+  #stage {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 1920px;
+    height: 1080px;
+    transform-origin: center center;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    padding: 92px 132px 172px;
+    display: none;
+    flex-direction: column;
+    background: var(--navy);
+    color: #fff;
+  }
+  .slide.on { display: flex; }
+
+  .eyebrow {
+    font-size: 21px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--gold);
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 92px;
+    line-height: 1.03;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin-top: 22px;
+  }
+  h1 .light { color: rgba(255, 255, 255, 0.55); font-weight: 400; }
+
+  h2 {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 66px;
+    line-height: 1.08;
+    letter-spacing: -0.018em;
+    font-weight: 600;
+    margin-top: 22px;
+  }
+
+  .lede {
+    font-size: 32px;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.78);
+    max-width: 1320px;
+    margin-top: 30px;
+  }
+
+  /* `flex: none` matters: the slide is a flex column, and without it this 4px rule is
+     the only item that can shrink, so it silently collapses to nothing. */
+  .rule { height: 4px; background: var(--gold); width: 92px; margin: 38px 0 0; flex: none; }
+
+  ul { list-style: none; }
+
+  /* Slide 1 — the three claims. */
+  .claims { margin-top: 46px; display: flex; flex-direction: column; gap: 28px; max-width: 1480px; }
+  .claims li { display: flex; gap: 30px; align-items: baseline; }
+  .claims .n {
+    font-variant-numeric: tabular-nums;
+    font-size: 25px;
+    color: var(--gold);
+    font-weight: 700;
+    min-width: 46px;
+  }
+  .claims .t { font-size: 33px; line-height: 1.4; }
+  .claims .t b { font-weight: 650; }
+  .claims .t span { color: rgba(255, 255, 255, 0.62); }
+
+  /* Slide 2 — two columns. */
+  .cols { margin-top: 42px; display: grid; grid-template-columns: 1fr 1fr; gap: 88px; }
+  .colhead {
+    font-size: 19px;
+    letter-spacing: 0.19em;
+    text-transform: uppercase;
+    color: var(--gold);
+    font-weight: 600;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .portals { margin-top: 28px; display: flex; flex-direction: column; gap: 23px; }
+  .portals li { display: flex; gap: 22px; align-items: baseline; }
+  .portals .dot { width: 13px; height: 13px; border-radius: 50%; flex: none; margin-top: 13px; }
+  .portals .name { font-size: 30px; font-weight: 650; }
+  .portals .desc { font-size: 24px; color: rgba(255, 255, 255, 0.62); line-height: 1.4; }
+
+  .journey { margin-top: 28px; display: flex; flex-direction: column; gap: 16px; counter-reset: j; }
+  .journey li {
+    font-size: 25px;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.86);
+    display: flex;
+    gap: 20px;
+  }
+  .journey li::before {
+    counter-increment: j;
+    content: counter(j);
+    font-variant-numeric: tabular-nums;
+    color: var(--gold);
+    font-weight: 700;
+    font-size: 20px;
+    min-width: 26px;
+    padding-top: 5px;
+  }
+
+  .watch {
+    margin-top: 34px;
+    padding: 26px 32px;
+    background: rgba(255, 255, 255, 0.055);
+    border-left: 4px solid var(--gold);
+  }
+  .watch .h { font-size: 19px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .watch p { font-size: 24px; line-height: 1.44; margin-top: 13px; color: rgba(255, 255, 255, 0.84); }
+  .watch p + p { margin-top: 13px; }
+
+  footer {
+    position: absolute;
+    left: 132px;
+    right: 132px;
+    bottom: 62px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 19px;
+    color: rgba(255, 255, 255, 0.42);
+    border-top: 1px solid var(--rule);
+    padding-top: 22px;
+  }
+  footer .n { font-variant-numeric: tabular-nums; }
+
+  /* Keyboard hint, on the first slide only, and never in the way. */
+  #hint {
+    position: fixed;
+    bottom: 18px;
+    right: 22px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.3);
+    transition: opacity 0.5s ease;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+
+  <!-- 1 ─────────────────────────────────────────────────────────────────── -->
+  <section class="slide on">
+    <div class="eyebrow">Paysys Labs</div>
+    <h1>NexusCollect<br><span class="light">Person-to-Government collection</span></h1>
+    <div class="rule"></div>
+
+    <p class="lede">
+      A single platform through which a citizen or a business can settle anything they
+      owe to government — and through which each agency can prove, to the rupee, what it
+      collected and where that money went.
+    </p>
+
+    <ul class="claims">
+      <li>
+        <span class="n">01</span>
+        <span class="t"><b>One reference finds every bill.</b> <span>A vehicle number, a CNIC, a case number, a scanned QR — across every agency, in one list.</span></span>
+      </li>
+      <li>
+        <span class="n">02</span>
+        <span class="t"><b>Any channel can pay it.</b> <span>Bank app, branch counter, cheque, card, wallet, agent shop. The same pipeline behind all of them.</span></span>
+      </li>
+      <li>
+        <span class="n">03</span>
+        <span class="t"><b>Every rupee is attributed, and provably so.</b> <span>Split to the right revenue head, for the right agency, on an append-only ledger that can be re-checked at any time.</span></span>
+      </li>
+    </ul>
+
+    <footer>
+      <span>Demonstration build · figures are real data from a fixed dataset</span>
+      <span class="n">1 / 2</span>
+    </footer>
+  </section>
+
+  <!-- 2 ─────────────────────────────────────────────────────────────────── -->
+  <section class="slide">
+    <div class="eyebrow">What you are about to see</div>
+    <h2>Four portals, and one day’s money</h2>
+
+    <div class="cols">
+      <div>
+        <div class="colhead">Who uses it</div>
+        <ul class="portals">
+          <li>
+            <span class="dot" style="background:#0f5132"></span>
+            <span><span class="name">Citizen</span><br><span class="desc">Public. No account, no login. Find a bill, pay it, keep the receipt.</span></span>
+          </li>
+          <li>
+            <span class="dot" style="background:#c9a227"></span>
+            <span><span class="name">Agency</span><br><span class="desc">One agency’s own position, head by head. Issue bills, request payment, hand money to treasury.</span></span>
+          </li>
+          <li>
+            <span class="dot" style="background:#5b8db8"></span>
+            <span><span class="name">Operator</span><br><span class="desc">The back office, across all agencies. Reconcile, investigate, approve, sweep, prove.</span></span>
+          </li>
+          <li>
+            <span class="dot" style="background:#b5651d"></span>
+            <span><span class="name">Field</span><br><span class="desc">A counter or a shop. Cash, cheques, the till at end of shift.</span></span>
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <div class="colhead">The walkthrough</div>
+        <ol class="journey">
+          <li>What an agency can say about its money this morning</li>
+          <li>The agency asks a payer to settle a bill</li>
+          <li>One reference, three bills, two agencies — paid at once</li>
+          <li>The receipt, in English and Urdu, verified offline</li>
+          <li>Cash and a cheque taken across a counter</li>
+          <li>The day reconciled against bank, switch and rail</li>
+          <li>The cheque bounces, and everything it touched unwinds</li>
+          <li>Money handed to treasury — and every control re-checked</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="watch">
+      <div class="h">Two things worth watching for</div>
+      <p>Reconciliation finds <b>exactly eleven</b> discrepancies in the day — the number planted in the dataset. Not ten, not twelve.</p>
+      <p>We corrupt the financial ledger on camera, and the platform names <b>the specific entry</b> that was altered.</p>
+    </div>
+
+    <footer>
+      <span>Business date 30 July 2026 · Asia/Karachi · same actions, same numbers, every time</span>
+      <span class="n">2 / 2</span>
+    </footer>
+  </section>
+
+</div>
+
+<div id="hint">← → to move · F for full screen</div>
+
+<script>
+  // Scale the fixed 1920×1080 stage to whatever window it is opened in, so the slide
+  // is pixel-identical in shape regardless of screen — and never reflows on camera.
+  const stage = document.getElementById("stage");
+  function fit() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    stage.style.transform = `translate(-50%, -50%) scale(${scale})`;
+  }
+  window.addEventListener("resize", fit);
+  fit();
+
+  const slides = [...document.querySelectorAll(".slide")];
+  let at = 0;
+  function show(i) {
+    at = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, n) => s.classList.toggle("on", n === at));
+  }
+
+  const hint = document.getElementById("hint");
+  addEventListener("keydown", (e) => {
+    if (["ArrowRight", "ArrowDown", " ", "PageDown", "Enter"].includes(e.key)) { e.preventDefault(); show(at + 1); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); show(at - 1); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (e.key.toLowerCase() === "f") document.documentElement.requestFullscreen?.().catch(() => {});
+    hint.style.opacity = "0";
+  });
+  // Clicking anywhere advances, for presenting with a clicker.
+  addEventListener("click", () => { show(at + 1); hint.style.opacity = "0"; });
+</script>
+
+</body>
+</html>

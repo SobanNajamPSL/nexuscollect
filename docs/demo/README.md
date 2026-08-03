@@ -5,6 +5,7 @@ platform does.
 
 | | |
 |---|---|
+| [`slides/index.html`](slides/index.html) | The two opening slides — what NexusCollect is, and a map of the walkthrough. Open in Chrome, **F** for full screen. |
 | [`PRESENTER-SCRIPT.md`](PRESENTER-SCRIPT.md) | **For recording it yourself.** Nine independently-recordable sections: what to click, the points worth landing, and the figure you should see so nothing surprises you on camera. |
 | [`SHOT-LIST.md`](SHOT-LIST.md) | The automated film's beats, in order, with the narration verbatim |
 | [`recordings/`](recordings/) | The film and the standalone beat clips |

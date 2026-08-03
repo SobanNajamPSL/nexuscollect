@@ -53,14 +53,52 @@ returns everything to the start, and every section below can be re-recorded on i
 
 ---
 
+## 0 · The two opening slides
+
+**Open:** `docs/demo/slides/index.html` — double-click it, or drag it into Chrome.
+Press **F** for full screen, arrow keys or a click to advance.
+
+They are in the browser rather than in Keynote deliberately: the rest of the
+demonstration is a screen recording of Chrome, so opening here means no app switch on
+camera, no resolution change, and no chance of a presenter-view window appearing in the
+capture.
+
+**Slide 1 — what it is.** Let it sit for a moment before speaking.
+
+- A single place to settle anything owed to government, and a way for each agency to
+  prove what it collected and where the money went.
+- Walk the three claims. They are the promises the rest of the recording has to keep,
+  so say them as promises: *one reference finds every bill, any channel can pay it,
+  every rupee is provably attributed.*
+- Worth adding out loud: this is a demonstration build, and every figure they are about
+  to see is real data from a fixed dataset — not mocked screens.
+
+**Slide 2 — what they're about to watch.**
+
+- Four portals, four different audiences. Emphasise that these are *separate*
+  applications, not tabs in one window: a citizen's payment screen and a reconciliation
+  console have nothing to do with each other.
+- Run down the eight steps quickly. You are giving them a map, not explaining anything
+  yet.
+- Land the two things worth watching for. Setting these up in advance is what makes
+  them land later — the audience is now waiting for the eleven, and for the tamper.
+
+Then switch to the agency portal and begin.
+
+> Keep it to about **90 seconds for both slides**. They are a frame, not a pitch, and
+> the product is the argument.
+
+---
+
 ## Run order
 
-Nine sections, about 20 minutes at a comfortable pace. Sections marked **CORE** make
+Two slides then nine sections, about 22 minutes at a comfortable pace. Sections marked **CORE** make
 the argument on their own — that cut runs about 12 minutes. The rest are depth you can
 include or drop depending on the room.
 
 | | Section | Portal | CORE | ~Time |
 |---|---|---|---|---|
+| 0 | The two opening slides | Browser | ✓ | 1m 30s |
 | 1 | Where the money ends up | Agency | ✓ | 1m 30s |
 | 2 | The agency asks to be paid | Agency | | 1m 30s |
 | 3 | The citizen pays | Citizen | ✓ | 4m |
@@ -337,11 +375,11 @@ with a banner saying the failure is locatable rather than merely alarming.
 
 ## If you want a shorter cut
 
-**~12 minutes:** sections 1, 3, 4, 6, 7, 8, 9. Skip the Request to Pay and the counter.
+**~13 minutes:** slides, then sections 1, 3, 4, 6, 7, 8, 9. Skip the Request to Pay and the counter.
 You lose the platform-initiated journey and the cash channel, and you keep the whole
 argument: cross-agency lookup, a real receipt, reconciliation under maker-checker, the
 dishonour cascade, and the tamper being caught by name.
 
-**~6 minutes, if you only get one shot:** section 1 (the three numbers), section 3 (one
-reference, two agencies), and section 9 (break the chain). That is the product's claim,
+**~7 minutes, if you only get one shot:** slide 1, section 1 (the three numbers),
+section 3 (one reference, two agencies), and section 9 (break the chain). That is the product's claim,
 its proof, and the reason to believe it.
