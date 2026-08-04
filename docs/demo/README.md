@@ -1,7 +1,22 @@
 # The recorded demonstration
 
-Everything needed to reproduce, re-record, or re-cut the film that shows what this
-platform does.
+## ▶ The film
+
+**https://youtu.be/QeXAlXBtSKE** — the delivered demonstration, presented and narrated
+live, running 1 hour 12 minutes.
+
+This is the reference cut: the full walkthrough, in depth, for an evaluation audience
+with the time booked. It is a **human-presented recording**, not the automated capture
+described further down — the script it follows is
+[`PRESENTER-SCRIPT.md`](PRESENTER-SCRIPT.md), and the two opening slides are
+[`slides/index.html`](slides/index.html).
+
+Every figure in it is synthetic demonstration data on the fixed business date of
+30 July 2026.
+
+---
+
+Everything else here is what produced that film, or what would produce another one.
 
 | | |
 |---|---|

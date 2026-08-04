@@ -1,5 +1,12 @@
 # Recordings
 
+> **Looking for the actual demonstration?** It is at
+> **https://youtu.be/QeXAlXBtSKE** — presented live, 1 hour 12 minutes. That film was
+> recorded by a person following [`../PRESENTER-SCRIPT.md`](../PRESENTER-SCRIPT.md).
+> Everything in *this* directory is the earlier **automated** capture, which is a
+> different thing: useful as a determinism harness and as the source of the narration
+> text, but not the delivered artefact.
+
 **The video files are not in git.** They are regenerated from
 [`../../../scripts/record-demo.ts`](../../../scripts/record-demo.ts), which is
 committed and is the authoritative version of the demonstration — the narration lives

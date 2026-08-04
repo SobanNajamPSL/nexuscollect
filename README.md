@@ -15,7 +15,7 @@ abstraction layer.
 | `test/` | Vitest, against a real Postgres via Testcontainers. |
 | `scripts/` | Migrate, seed, capture every screen, record the demonstration, build its narration. |
 | `demo-data/` + `config/` | Seed dataset **and** the test fixture. Read-only — never regenerated to make a test pass. Siblings by necessity: the loader resolves `config/` relative to `demo-data/`. |
-| `docs/` | [Manual](docs/manual/), [demonstration](docs/demo/), [runbooks](docs/runbooks/). Start with `docs/manual/`. |
+| `docs/` | [Manual](docs/manual/), [demonstration](docs/demo/), [runbooks](docs/runbooks/). Start with `docs/manual/`. The recorded demonstration is at **https://youtu.be/QeXAlXBtSKE**. |
 | `archive/` | The phase prompts, the original UI brief, the reference prototype. Provenance only — nothing there is current, and [its README says why](archive/README.md). |
 | `CLAUDE.md` | Standing instructions for the coding agent. Stack, hard rules, demo-mode requirements. `AGENTS.md` points here. |
 
